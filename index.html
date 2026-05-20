@@ -329,13 +329,39 @@ CREATE TRIGGER on_auth_user_created
         <span id="badge-reminders" class="ml-auto bg-red-500 text-white text-xs rounded-full px-1.5 hidden"></span>
       </button>
     </nav>
-    <div class="p-3 border-t border-indigo-700">
+    <div class="p-3 border-t border-indigo-700 space-y-1">
+      <button onclick="openTelegramLink()"
+        class="w-full text-left px-4 py-2 text-indigo-300 hover:text-white rounded-lg hover:bg-white/10 transition flex items-center gap-2">
+        <span>✈️</span> Привязать Telegram
+      </button>
       <button onclick="handleLogout()"
         class="w-full text-left px-4 py-2 text-indigo-300 hover:text-white rounded-lg hover:bg-white/10 transition flex items-center gap-2">
         <span>🚪</span> Выйти
       </button>
     </div>
   </aside>
+
+  <!-- ── Telegram Link Modal ───────────────────────────────────────────── -->
+  <div id="tg-link-modal" class="modal-overlay hidden">
+    <div class="modal-box max-w-sm">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-semibold">✈️ Привязать Telegram</h3>
+        <button onclick="closeTelegramLink()" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+      </div>
+      <div id="tg-link-content">
+        <p class="text-slate-600 mb-4">Сгенерируй код и отправь его боту командой <code class="bg-slate-100 px-1 rounded">/link КОД</code></p>
+        <button onclick="generateLinkCode()" class="btn btn-primary w-full">Сгенерировать код</button>
+      </div>
+      <div id="tg-link-result" class="hidden text-center">
+        <p class="text-slate-500 mb-2">Твой код (действует 15 минут):</p>
+        <div id="tg-link-code" class="text-4xl font-mono font-bold tracking-widest text-indigo-600 my-4"></div>
+        <p class="text-slate-600 mb-4">Отправь боту в Telegram:</p>
+        <div class="bg-slate-100 rounded-lg px-4 py-3 font-mono text-lg text-slate-700 mb-4" id="tg-link-cmd"></div>
+        <button onclick="copyLinkCode()" class="btn btn-secondary w-full mb-2">📋 Скопировать команду</button>
+        <p class="text-xs text-slate-400" id="tg-link-timer"></p>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Main content ───────────────────────────────────────────────── -->
   <main id="main-content" class="ml-56 flex-1 p-6 overflow-auto">
@@ -1330,6 +1356,71 @@ async function handleLogout() {
   currentUser = currentProfile = null;
   document.getElementById('app').classList.add('hidden');
   document.getElementById('auth-page').classList.remove('hidden');
+}
+
+// ── Telegram Link ─────────────────────────────────────────────────────────────
+let tgLinkTimerInterval = null;
+
+function openTelegramLink() {
+  document.getElementById('tg-link-modal').classList.remove('hidden');
+  document.getElementById('tg-link-content').classList.remove('hidden');
+  document.getElementById('tg-link-result').classList.add('hidden');
+}
+
+function closeTelegramLink() {
+  document.getElementById('tg-link-modal').classList.add('hidden');
+  if (tgLinkTimerInterval) clearInterval(tgLinkTimerInterval);
+}
+
+async function generateLinkCode() {
+  if (!currentUser) return;
+
+  // Генерируем 6-символьный код
+  const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+  // Сохраняем в Supabase
+  const { error } = await sb.from('link_codes').insert({
+    code,
+    recruiter_id: currentUser.id,
+    expires_at: expiresAt,
+    used: false,
+  });
+
+  if (error) {
+    alert('Ошибка генерации кода: ' + error.message);
+    return;
+  }
+
+  // Показываем код
+  document.getElementById('tg-link-content').classList.add('hidden');
+  document.getElementById('tg-link-result').classList.remove('hidden');
+  document.getElementById('tg-link-code').textContent = code;
+  document.getElementById('tg-link-cmd').textContent = `/link ${code}`;
+
+  // Таймер обратного отсчёта
+  const expiry = Date.now() + 15 * 60 * 1000;
+  if (tgLinkTimerInterval) clearInterval(tgLinkTimerInterval);
+  tgLinkTimerInterval = setInterval(() => {
+    const left = Math.max(0, Math.round((expiry - Date.now()) / 1000));
+    const m = Math.floor(left / 60);
+    const s = left % 60;
+    document.getElementById('tg-link-timer').textContent =
+      `Код действует ещё ${m}:${String(s).padStart(2, '0')}`;
+    if (left === 0) {
+      clearInterval(tgLinkTimerInterval);
+      document.getElementById('tg-link-timer').textContent = 'Код истёк. Сгенерируй новый.';
+    }
+  }, 1000);
+}
+
+function copyLinkCode() {
+  const cmd = document.getElementById('tg-link-cmd').textContent;
+  navigator.clipboard.writeText(cmd).then(() => {
+    const btn = event.target;
+    btn.textContent = '✅ Скопировано!';
+    setTimeout(() => btn.textContent = '📋 Скопировать команду', 2000);
+  });
 }
 
 async function loadProfile() {

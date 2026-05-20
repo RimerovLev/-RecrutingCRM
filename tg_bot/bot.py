@@ -480,6 +480,67 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(f"{status_emoji(status)} Статус изменён: {status_label(status)}")
 
 
+# ── Link command ─────────────────────────────────────────────────────────────
+async def cmd_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    tg_user = update.effective_user
+    code = " ".join(ctx.args).strip().upper()
+
+    if not code:
+        await update.message.reply_text(
+            "Использование: /link КОД\n\n"
+            "Код можно получить в CRM → Настройки → Привязать Telegram"
+        )
+        return
+
+    # Ищем код в базе
+    res = (sb.from_("link_codes")
+             .select("recruiter_id, expires_at, used")
+             .eq("code", code)
+             .execute())
+
+    if not res.data:
+        await update.message.reply_text("❌ Код не найден. Проверь правильность или сгенерируй новый в CRM.")
+        return
+
+    row = res.data[0]
+
+    if row["used"]:
+        await update.message.reply_text("❌ Этот код уже использован. Сгенерируй новый в CRM.")
+        return
+
+    expires_at = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+    if datetime.now(TZ) > expires_at:
+        await update.message.reply_text("❌ Код истёк. Сгенерируй новый в CRM.")
+        return
+
+    recruiter_id = row["recruiter_id"]
+
+    # Обновляем или создаём запись в telegram_users
+    existing = (sb.from_("telegram_users")
+                  .select("telegram_id")
+                  .eq("telegram_id", tg_user.id)
+                  .execute())
+
+    if existing.data:
+        sb.from_("telegram_users").update({"recruiter_id": recruiter_id}).eq("telegram_id", tg_user.id).execute()
+    else:
+        sb.from_("telegram_users").insert({
+            "telegram_id": tg_user.id,
+            "recruiter_id": recruiter_id,
+            "username": tg_user.username,
+            "full_name": tg_user.full_name,
+        }).execute()
+
+    # Помечаем код как использованный
+    sb.from_("link_codes").update({"used": True}).eq("code", code).execute()
+
+    await update.message.reply_html(
+        "✅ <b>Аккаунт успешно привязан!</b>\n\n"
+        "Теперь бот работает с твоей базой из CRM.\n"
+        "Попробуй /candidates или /stats"
+    )
+
+
 # ── Unknown command ───────────────────────────────────────────────────────────
 async def unknown(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -567,6 +628,7 @@ async def async_main():
     app.add_handler(CommandHandler("add",        cmd_add))
     app.add_handler(CommandHandler("note",       cmd_note))
     app.add_handler(CommandHandler("stats",      cmd_stats))
+    app.add_handler(CommandHandler("link",       cmd_link))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
@@ -580,6 +642,7 @@ async def async_main():
             BotCommand("add",        "Добавить кандидата"),
             BotCommand("note",       "Добавить напоминание"),
             BotCommand("stats",      "Статистика"),
+            BotCommand("link",       "Привязать аккаунт CRM"),
         ])
         application.job_queue.run_daily(
             send_morning_digest,
