@@ -1,0 +1,2629 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recruit CRM</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- EmailJS -->
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <!-- PapaParse (CSV) -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- SheetJS (Excel .xls/.xlsx) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* ── Modals ── */
+    .modal-overlay          { display: none; }
+    .modal-overlay.active   { display: flex; }
+
+    /* ── Toast animation ── */
+    @keyframes slideIn { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+    .toast-enter  { animation: slideIn .3s ease forwards; }
+    .toast-leave  { animation: fadeOut .4s ease forwards; }
+
+    /* ── Sidebar active nav ── */
+    .nav-btn.active { background: rgba(255,255,255,.18); }
+
+    /* ── Kanban card transition ── */
+    .kanban-card { transition: box-shadow .15s; }
+    .kanban-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+
+    /* ── Textarea resize ── */
+    textarea { resize: vertical; }
+
+    /* ── Table rows ── */
+    tbody tr:last-child td { border-bottom: none; }
+
+    /* ── Scrollbar thin ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 4px; }
+  </style>
+</head>
+
+<!--
+╔══════════════════════════════════════════════════════════════════════╗
+║              SQL МИГРАЦИИ — запустить в Supabase SQL Editor          ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+-- 0. Расширения
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- 1. profiles
+CREATE TABLE profiles (
+  id          UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  full_name   TEXT,
+  role        TEXT DEFAULT 'recruiter',
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. candidates
+CREATE TABLE candidates (
+  id                  UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  recruiter_id        UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  full_name           TEXT NOT NULL,
+  email               TEXT,
+  phone               TEXT,
+  resume_url          TEXT,
+  skills              TEXT[],
+  experience          TEXT,
+  salary_expectation  INTEGER,
+  created_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. vacancies
+CREATE TABLE vacancies (
+  id           UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  recruiter_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  title        TEXT NOT NULL,
+  description  TEXT,
+  requirements TEXT,
+  salary_min   INTEGER,
+  salary_max   INTEGER,
+  status       TEXT DEFAULT 'open',
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. candidacies
+CREATE TABLE candidacies (
+  id            UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  candidate_id  UUID REFERENCES candidates(id) ON DELETE CASCADE NOT NULL,
+  vacancy_id    UUID REFERENCES vacancies(id)  ON DELETE CASCADE NOT NULL,
+  current_stage TEXT DEFAULT 'Новый',
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(candidate_id, vacancy_id)
+);
+
+-- 5. stage_history
+CREATE TABLE stage_history (
+  id            UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  candidacy_id  UUID REFERENCES candidacies(id) ON DELETE CASCADE NOT NULL,
+  from_stage    TEXT,
+  to_stage      TEXT NOT NULL,
+  changed_by    UUID REFERENCES profiles(id),
+  changed_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. comments
+CREATE TABLE comments (
+  id           UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE NOT NULL,
+  author_id    UUID REFERENCES profiles(id),
+  content      TEXT NOT NULL,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. reminders
+CREATE TABLE reminders (
+  id           UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  recruiter_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  candidate_id UUID REFERENCES candidates(id) ON DELETE SET NULL,
+  note         TEXT NOT NULL,
+  due_date     DATE,
+  is_done      BOOLEAN DEFAULT FALSE,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── RLS ──────────────────────────────────────────────────────────────
+
+ALTER TABLE profiles      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE candidates    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vacancies     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE candidacies   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stage_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE comments      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reminders     ENABLE ROW LEVEL SECURITY;
+
+-- profiles
+CREATE POLICY "own profile select" ON profiles FOR SELECT USING (auth.uid() = id);
+CREATE POLICY "own profile insert" ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "own profile update" ON profiles FOR UPDATE USING (auth.uid() = id);
+
+-- candidates
+CREATE POLICY "own candidates select" ON candidates FOR SELECT USING (recruiter_id = auth.uid());
+CREATE POLICY "own candidates insert" ON candidates FOR INSERT WITH CHECK (recruiter_id = auth.uid());
+CREATE POLICY "own candidates update" ON candidates FOR UPDATE USING (recruiter_id = auth.uid());
+CREATE POLICY "own candidates delete" ON candidates FOR DELETE USING (recruiter_id = auth.uid());
+
+-- vacancies
+CREATE POLICY "own vacancies select" ON vacancies FOR SELECT USING (recruiter_id = auth.uid());
+CREATE POLICY "own vacancies insert" ON vacancies FOR INSERT WITH CHECK (recruiter_id = auth.uid());
+CREATE POLICY "own vacancies update" ON vacancies FOR UPDATE USING (recruiter_id = auth.uid());
+CREATE POLICY "own vacancies delete" ON vacancies FOR DELETE USING (recruiter_id = auth.uid());
+
+-- candidacies (через вакансию рекрутера)
+CREATE POLICY "own candidacies select" ON candidacies FOR SELECT USING (
+  EXISTS (SELECT 1 FROM vacancies WHERE id = vacancy_id AND recruiter_id = auth.uid())
+);
+CREATE POLICY "own candidacies insert" ON candidacies FOR INSERT WITH CHECK (
+  EXISTS (SELECT 1 FROM vacancies WHERE id = vacancy_id AND recruiter_id = auth.uid())
+);
+CREATE POLICY "own candidacies update" ON candidacies FOR UPDATE USING (
+  EXISTS (SELECT 1 FROM vacancies WHERE id = vacancy_id AND recruiter_id = auth.uid())
+);
+CREATE POLICY "own candidacies delete" ON candidacies FOR DELETE USING (
+  EXISTS (SELECT 1 FROM vacancies WHERE id = vacancy_id AND recruiter_id = auth.uid())
+);
+
+-- stage_history
+CREATE POLICY "own stage_history select" ON stage_history FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM candidacies c
+    JOIN vacancies v ON v.id = c.vacancy_id
+    WHERE c.id = candidacy_id AND v.recruiter_id = auth.uid()
+  )
+);
+CREATE POLICY "own stage_history insert" ON stage_history FOR INSERT WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM candidacies c
+    JOIN vacancies v ON v.id = c.vacancy_id
+    WHERE c.id = candidacy_id AND v.recruiter_id = auth.uid()
+  )
+);
+
+-- comments
+CREATE POLICY "own comments select" ON comments FOR SELECT USING (
+  EXISTS (SELECT 1 FROM candidates WHERE id = candidate_id AND recruiter_id = auth.uid())
+);
+CREATE POLICY "own comments insert" ON comments FOR INSERT WITH CHECK (
+  EXISTS (SELECT 1 FROM candidates WHERE id = candidate_id AND recruiter_id = auth.uid())
+);
+CREATE POLICY "own comments delete" ON comments FOR DELETE USING (author_id = auth.uid());
+
+
+CREATE POLICY "own reminders select" ON reminders FOR SELECT USING (recruiter_id = auth.uid());
+CREATE POLICY "own reminders insert" ON reminders FOR INSERT WITH CHECK (recruiter_id = auth.uid());
+CREATE POLICY "own reminders update" ON reminders FOR UPDATE USING (recruiter_id = auth.uid());
+CREATE POLICY "own reminders delete" ON reminders FOR DELETE USING (recruiter_id = auth.uid());
+
+
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, full_name, role)
+  VALUES (NEW.id, NEW.raw_user_meta_data->>'full_name', 'recruiter')
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- ── Storage ───────────────────────────────────────────────────────────
+-- Supabase Dashboard → Storage → New bucket: "resumes", Public: ON
+-- Либо:
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('resumes', 'resumes', true);
+-- CREATE POLICY "anyone can upload resumes" ON storage.objects FOR INSERT
+--   WITH CHECK (bucket_id = 'resumes' AND auth.role() = 'authenticated');
+-- CREATE POLICY "anyone can read resumes" ON storage.objects FOR SELECT
+--   USING (bucket_id = 'resumes');
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                   КОНЕЦ SQL МИГРАЦИЙ                                 ║
+╚══════════════════════════════════════════════════════════════════════╝
+-->
+
+<body class="bg-slate-100 min-h-screen font-sans text-sm">
+
+<!-- ─── Toast container ──────────────────────────────────────────────── -->
+<div id="toast-container" class="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     AUTH PAGE
+═════════════════════════════════════════════════════════════════════ -->
+<div id="auth-page" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4">
+    <div class="text-center mb-8">
+      <div class="text-5xl mb-3">🎯</div>
+      <h1 class="text-2xl font-extrabold text-indigo-700 tracking-tight">Recruit CRM</h1>
+      <p class="text-slate-400 mt-1 text-xs">Система управления подбором персонала</p>
+    </div>
+
+    <!-- Auth tabs -->
+    <div class="flex border-b border-slate-200 mb-6">
+      <button onclick="switchAuthTab('login')" id="auth-tab-login"
+        class="flex-1 py-2 font-semibold text-indigo-600 border-b-2 border-indigo-600 transition">Вход</button>
+      <button onclick="switchAuthTab('register')" id="auth-tab-register"
+        class="flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent transition">Регистрация</button>
+    </div>
+
+    <!-- Login -->
+    <div id="auth-login">
+      <form onsubmit="handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="block font-medium text-slate-600 mb-1">Email</label>
+          <input id="login-email" type="email" required autocomplete="email"
+            class="input-field" placeholder="you@company.com" />
+        </div>
+        <div>
+          <label class="block font-medium text-slate-600 mb-1">Пароль</label>
+          <input id="login-password" type="password" required autocomplete="current-password"
+            class="input-field" placeholder="••••••••" />
+        </div>
+        <button type="submit" class="btn-primary w-full py-2.5">Войти →</button>
+      </form>
+    </div>
+
+    <!-- Register -->
+    <div id="auth-register" class="hidden">
+      <form onsubmit="handleRegister(event)" class="space-y-4">
+        <div>
+          <label class="block font-medium text-slate-600 mb-1">ФИО</label>
+          <input id="reg-name" type="text" required
+            class="input-field" placeholder="Иванов Иван Иванович" />
+        </div>
+        <div>
+          <label class="block font-medium text-slate-600 mb-1">Email</label>
+          <input id="reg-email" type="email" required autocomplete="email"
+            class="input-field" placeholder="you@company.com" />
+        </div>
+        <div>
+          <label class="block font-medium text-slate-600 mb-1">Пароль</label>
+          <input id="reg-password" type="password" required minlength="6" autocomplete="new-password"
+            class="input-field" placeholder="Минимум 6 символов" />
+        </div>
+        <button type="submit" class="btn-primary w-full py-2.5">Создать аккаунт →</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     MAIN APP
+═════════════════════════════════════════════════════════════════════ -->
+<div id="app" class="hidden min-h-screen flex">
+
+  <!-- ── Sidebar (desktop only) ──────────────────────────────────── -->
+  <aside id="sidebar-desktop" class="w-56 bg-indigo-900 text-white flex flex-col fixed h-full z-30 shadow-2xl">
+    <div class="px-5 py-5 border-b border-indigo-700">
+      <div class="text-lg font-extrabold tracking-tight">🎯 Recruit CRM</div>
+      <div id="user-display" class="text-indigo-300 text-xs mt-1 truncate"></div>
+    </div>
+    <nav class="flex-1 p-3 space-y-0.5">
+      <button onclick="showView('dashboard')" data-view="dashboard"
+        class="nav-btn w-full text-left px-4 py-2.5 rounded-lg flex items-center gap-3 hover:bg-white/10 transition font-medium">
+        <span>📊</span> Дашборд
+      </button>
+      <button onclick="showView('candidates')" data-view="candidates"
+        class="nav-btn w-full text-left px-4 py-2.5 rounded-lg flex items-center gap-3 hover:bg-white/10 transition font-medium">
+        <span>👥</span> Кандидаты
+      </button>
+      <button onclick="showView('vacancies')" data-view="vacancies"
+        class="nav-btn w-full text-left px-4 py-2.5 rounded-lg flex items-center gap-3 hover:bg-white/10 transition font-medium">
+        <span>💼</span> Вакансии
+      </button>
+      <button onclick="showView('reminders')" data-view="reminders"
+        class="nav-btn w-full text-left px-4 py-2.5 rounded-lg flex items-center gap-3 hover:bg-white/10 transition font-medium">
+        <span>🔔</span> Напоминания
+        <span id="badge-reminders" class="ml-auto bg-red-500 text-white text-xs rounded-full px-1.5 hidden"></span>
+      </button>
+    </nav>
+    <div class="p-3 border-t border-indigo-700">
+      <button onclick="handleLogout()"
+        class="w-full text-left px-4 py-2 text-indigo-300 hover:text-white rounded-lg hover:bg-white/10 transition flex items-center gap-2">
+        <span>🚪</span> Выйти
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Main content ───────────────────────────────────────────────── -->
+  <main id="main-content" class="ml-56 flex-1 p-6 overflow-auto">
+
+    <!-- ── DASHBOARD ────────────────────────────────────────────────── -->
+    <section id="view-dashboard" class="view hidden">
+      <h2 class="page-title">📊 Дашборд</h2>
+
+      <!-- Stats row -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <button onclick="showView('candidates')" class="card p-5 text-center hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer text-left w-full">
+          <div class="text-3xl font-extrabold text-indigo-600" id="stat-candidates">—</div>
+          <div class="text-slate-500 mt-1">Кандидатов</div>
+          <div class="text-xs text-indigo-400 mt-2">→ Перейти</div>
+        </button>
+        <button onclick="showView('vacancies')" class="card p-5 text-center hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer text-left w-full">
+          <div class="text-3xl font-extrabold text-emerald-500" id="stat-vac-open">—</div>
+          <div class="text-slate-500 mt-1">Вакансий открыто</div>
+          <div class="text-xs text-emerald-400 mt-2">→ Перейти</div>
+        </button>
+        <button onclick="showView('vacancies')" class="card p-5 text-center hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer text-left w-full">
+          <div class="text-3xl font-extrabold text-slate-400" id="stat-vac-closed">—</div>
+          <div class="text-slate-500 mt-1">Вакансий закрыто</div>
+          <div class="text-xs text-slate-400 mt-2">→ Перейти</div>
+        </button>
+        <button onclick="showView('reminders')" class="card p-5 text-center hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer text-left w-full">
+          <div class="text-3xl font-extrabold text-amber-500" id="stat-avg-interview">—</div>
+          <div class="text-slate-500 mt-1">Дней на собесед.</div>
+          <div class="text-xs text-amber-400 mt-2">→ Напоминания</div>
+        </button>
+      </div>
+
+      <!-- Chart + reminders -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="card p-5">
+          <h3 class="font-semibold text-slate-700 mb-4">Кандидаты по этапам</h3>
+          <canvas id="stages-chart" height="180"></canvas>
+        </div>
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-slate-700">Ближайшие напоминания</h3>
+            <button onclick="openReminderModal()" class="btn-sm btn-primary">+ Добавить</button>
+          </div>
+          <div id="dash-reminders"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── CANDIDATES ─────────────────────────────────────────────── -->
+    <section id="view-candidates" class="view hidden">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <h2 class="page-title mb-0">👥 Кандидаты</h2>
+        <div class="flex flex-wrap gap-2">
+          <label class="btn-sm btn-secondary cursor-pointer">
+            📤 Импорт Excel / CSV
+            <input type="file" accept=".csv,.xls,.xlsx" onchange="importFile(event)" class="hidden" />
+          </label>
+          <button onclick="exportAllCandidatesCSV()" class="btn-sm btn-secondary">📥 Экспорт CSV</button>
+          <button onclick="seedCandidates()" class="btn-sm btn-secondary" title="Добавить 10 тестовых кандидатов">🌱 Тест-данные</button>
+          <button onclick="openCandidateModal()" class="btn-sm btn-primary">+ Добавить кандидата</button>
+        </div>
+      </div>
+
+      <!-- Search + Filters -->
+      <div class="card p-4 mb-3">
+        <div id="cand-search-row" class="flex gap-3 mb-3">
+          <input id="search-name" type="text" onkeyup="filterCandidates()" placeholder="Поиск по ФИО…" class="input-field flex-1" />
+          <input id="search-position" type="text" onkeyup="filterCandidates()" placeholder="Должность, район, источник…" class="input-field flex-1" />
+          <button onclick="toggleFilters()" id="filters-toggle-btn" class="btn-sm btn-secondary whitespace-nowrap">⚙️ Фильтры</button>
+          <button onclick="resetFilters()" class="btn-sm btn-secondary whitespace-nowrap text-slate-400">✕ Сброс</button>
+        </div>
+        <div id="filters-panel" class="hidden grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-slate-100">
+          <div>
+            <label class="form-label">Статус</label>
+            <select id="filter-status" onchange="filterCandidates()" class="input-field">
+              <option value="">Все</option>
+              <option value="active">Активный</option>
+              <option value="in_work">В работе</option>
+              <option value="archive">Архив</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Наличие авто</label>
+            <select id="filter-car" onchange="filterCandidates()" class="input-field">
+              <option value="">Все</option>
+              <option value="Да">Да</option>
+              <option value="Нет">Нет</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Район проживания</label>
+            <input id="filter-district" type="text" onkeyup="filterCandidates()" class="input-field" placeholder="Центральный…" />
+          </div>
+          <div>
+            <label class="form-label">Добавлен от</label>
+            <input id="filter-date" type="date" onchange="filterCandidates()" class="input-field" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Bulk action bar -->
+      <div id="bulk-bar" class="hidden mb-3 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center gap-3 flex-wrap">
+        <span id="bulk-count" class="font-semibold text-indigo-700"></span>
+        <button onclick="bulkDelete()" class="btn-sm bg-red-500 text-white hover:bg-red-600">🗑️ Удалить</button>
+        <button onclick="openBulkVacancyModal()" class="btn-sm btn-primary">💼 Добавить в вакансию</button>
+        <button onclick="clearSelection()" class="btn-sm btn-secondary ml-auto">✕ Отменить выбор</button>
+      </div>
+
+      <!-- Mobile cards (hidden on desktop via CSS) -->
+      <div id="cand-cards" class="space-y-2.5" style="display:none"></div>
+
+      <!-- Table (hidden on mobile via CSS) -->
+      <div class="candidates-table-wrap card overflow-x-auto">
+        <table class="w-full min-w-max">
+          <thead class="bg-slate-50 border-b border-slate-200">
+            <tr>
+              <th class="th w-8"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" class="rounded" /></th>
+              <th class="th w-6"></th>
+              <th class="th-sort" onclick="sortBy('full_name')">ФИО <span class="sort-icon" data-col="full_name"></span></th>
+              <th class="th">Статус</th>
+              <th class="th-sort" onclick="sortBy('phone')">Телефон <span class="sort-icon" data-col="phone"></span></th>
+              <th class="th-sort" onclick="sortBy('district_residence')">Р-н проживания <span class="sort-icon" data-col="district_residence"></span></th>
+              <th class="th-sort" onclick="sortBy('district_work')">Р-н работы <span class="sort-icon" data-col="district_work"></span></th>
+              <th class="th">Авто</th>
+              <th class="th-sort" onclick="sortBy('position')">Должность <span class="sort-icon" data-col="position"></span></th>
+              <th class="th">Источник</th>
+              <th class="th">Связь</th>
+              <th class="th">Ссылка на кандидата</th>
+              <th class="th">Ссылка на резюме</th>
+              <th class="th">Действия</th>
+            </tr>
+          </thead>
+          <tbody id="cand-tbody">
+            <tr><td colspan="14" class="py-10 text-center text-slate-400">Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── VACANCIES ─────────────────────────────────────────────── -->
+    <section id="view-vacancies" class="view hidden">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="page-title mb-0">💼 Вакансии</h2>
+        <button onclick="openVacancyModal()" class="btn-sm btn-primary">+ Создать вакансию</button>
+      </div>
+      <div id="vac-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+    </section>
+
+    <!-- ── KANBAN ─────────────────────────────────────────────────── -->
+    <section id="view-kanban" class="view hidden">
+      <div class="flex flex-wrap items-center gap-3 mb-6">
+        <button onclick="showView('vacancies')"
+          class="btn-sm btn-secondary">← Назад</button>
+        <h2 class="page-title mb-0" id="kanban-vac-title">Канбан</h2>
+        <div class="ml-auto flex gap-2 flex-wrap">
+          <button onclick="exportKanbanCSV()" class="btn-sm btn-secondary">📥 Экспорт CSV</button>
+          <button onclick="openLinkModal()" class="btn-sm btn-primary">+ Привязать кандидата</button>
+        </div>
+      </div>
+      <div id="kanban-board" class="flex gap-3 overflow-x-auto pb-6"></div>
+    </section>
+
+    <!-- ── REMINDERS ─────────────────────────────────────────────── -->
+    <section id="view-reminders" class="view hidden">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="page-title mb-0">🔔 Напоминания</h2>
+        <button onclick="openReminderModal()" class="btn-sm btn-primary">+ Добавить</button>
+      </div>
+      <!-- Sort / filter bar -->
+      <div class="flex flex-wrap items-center gap-2 mb-5">
+        <span class="text-xs text-slate-500 font-medium mr-1">Сортировка:</span>
+        <button id="rem-sort-asc"  onclick="setReminderSort('asc')"
+          class="rem-sort-btn px-3 py-1 rounded-full text-xs font-semibold border transition active">
+          📅 Сначала ближайшие
+        </button>
+        <button id="rem-sort-desc" onclick="setReminderSort('desc')"
+          class="rem-sort-btn px-3 py-1 rounded-full text-xs font-semibold border transition">
+          📅 Сначала поздние
+        </button>
+        <button id="rem-sort-none" onclick="setReminderSort('none')"
+          class="rem-sort-btn px-3 py-1 rounded-full text-xs font-semibold border transition">
+          🕐 По дате добавления
+        </button>
+        <span class="ml-auto flex items-center gap-2">
+          <label class="text-xs text-slate-500 flex items-center gap-1 cursor-pointer select-none">
+            <input type="checkbox" id="rem-hide-done" onchange="reRenderReminders()" class="rounded">
+            Скрыть выполненные
+          </label>
+        </span>
+      </div>
+      <div id="reminders-list" class="space-y-3"></div>
+    </section>
+
+  </main>
+
+  <!-- ── Mobile bottom navigation ──────────────────────────────────── -->
+  <nav id="mobile-nav">
+    <button class="mob-btn active" onclick="showView('dashboard')" data-mob="dashboard">
+      <span class="mob-icon">📊</span>Дашборд
+    </button>
+    <button class="mob-btn" onclick="showView('candidates')" data-mob="candidates">
+      <span class="mob-icon">👥</span>Кандидаты
+    </button>
+    <button class="mob-btn" onclick="showView('vacancies')" data-mob="vacancies">
+      <span class="mob-icon">💼</span>Вакансии
+    </button>
+    <button class="mob-btn" onclick="showView('reminders')" data-mob="reminders">
+      <span class="mob-icon">🔔</span>Напомин.
+      <span id="mob-badge-reminders" class="mob-badge"></span>
+    </button>
+    <button class="mob-btn" onclick="handleLogout()">
+      <span class="mob-icon">🚪</span>Выйти
+    </button>
+  </nav>
+
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     MODALS
+═════════════════════════════════════════════════════════════════════ -->
+
+<!-- ── Candidate modal ───────────────────────────────────────────────── -->
+<div id="modal-candidate" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
+      <h3 id="cand-modal-title" class="text-lg font-bold text-slate-800">Добавить кандидата</h3>
+      <button onclick="closeModal('modal-candidate')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+    </div>
+    <form id="form-candidate" onsubmit="saveCandidate(event)" class="px-6 py-5 space-y-4">
+      <input type="hidden" id="cand-id" />
+
+      <!-- ФИО + Телефон -->
+      <div class="grid grid-cols-2 gap-3">
+        <div class="col-span-2">
+          <label class="form-label">ФИО *</label>
+          <input id="c-name" type="text" required class="input-field" placeholder="Иванов Иван Иванович" />
+        </div>
+        <div>
+          <label class="form-label">Телефон</label>
+          <input id="c-phone" type="text" class="input-field" placeholder="+7 999 000-00-00" />
+        </div>
+        <div>
+          <label class="form-label">Статус</label>
+          <select id="c-status" class="input-field">
+            <option value="active">Активный</option>
+            <option value="in_work">В работе</option>
+            <option value="archive">Архив</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Наличие авто</label>
+          <select id="c-has-car" class="input-field">
+            <option value="">—</option>
+            <option value="Да">Да</option>
+            <option value="Нет">Нет</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Районы -->
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="form-label">Р-н проживания</label>
+          <input id="c-district-res" type="text" class="input-field" placeholder="Центральный" />
+        </div>
+        <div>
+          <label class="form-label">Р-н работы</label>
+          <input id="c-district-work" type="text" class="input-field" placeholder="Северный" />
+        </div>
+      </div>
+
+      <!-- Должность + Источник -->
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="form-label">Должность</label>
+          <input id="c-position" type="text" class="input-field" placeholder="Менеджер по продажам" />
+        </div>
+        <div>
+          <label class="form-label">Источник резюме</label>
+          <input id="c-source" type="text" class="input-field" placeholder="hh.ru, Авито, Реферал…" />
+        </div>
+      </div>
+
+      <!-- Связь с кандидатом -->
+      <div>
+        <label class="form-label">Связь с кандидатом</label>
+        <input id="c-contact" type="text" class="input-field" placeholder="Звонок 12.05, ответил / WhatsApp…" />
+      </div>
+
+      <!-- Ссылки -->
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="form-label">Ссылка на кандидата</label>
+          <input id="c-link" type="url" class="input-field" placeholder="https://hh.ru/resume/…" />
+        </div>
+        <div>
+          <label class="form-label">Ссылка на резюме</label>
+          <input id="c-resume-link" type="url" class="input-field" placeholder="https://…" />
+        </div>
+      </div>
+
+      <!-- Файл резюме -->
+      <div>
+        <label class="form-label">Загрузить резюме (PDF / DOCX) <span class="text-slate-400 font-normal">— заменит ссылку выше</span></label>
+        <input id="c-resume" type="file" accept=".pdf,.docx,.doc" class="input-field py-1.5" />
+        <p id="c-resume-hint" class="text-xs text-slate-400 mt-1"></p>
+      </div>
+
+      <!-- Заметки -->
+      <div>
+        <label class="form-label">Заметки / Опыт</label>
+        <textarea id="c-exp" rows="2" class="input-field" placeholder="Дополнительная информация…"></textarea>
+      </div>
+
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="btn-primary flex-1 py-2">Сохранить</button>
+        <button type="button" onclick="closeModal('modal-candidate')" class="btn-secondary flex-1 py-2">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Vacancy modal ─────────────────────────────────────────────────── -->
+<div id="modal-vacancy" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
+      <h3 id="vac-modal-title" class="text-lg font-bold text-slate-800">Создать вакансию</h3>
+      <button onclick="closeModal('modal-vacancy')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+    </div>
+    <form id="form-vacancy" onsubmit="saveVacancy(event)" class="px-6 py-5 space-y-4">
+      <input type="hidden" id="vac-id" />
+      <div>
+        <label class="form-label">Должность *</label>
+        <input id="v-title" type="text" required class="input-field" placeholder="Frontend Developer" />
+      </div>
+      <div>
+        <label class="form-label">Описание</label>
+        <textarea id="v-desc" rows="3" class="input-field"></textarea>
+      </div>
+      <div>
+        <label class="form-label">Требования</label>
+        <textarea id="v-req" rows="3" class="input-field"></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="form-label">Зарплата от, ₽</label>
+          <input id="v-sal-min" type="number" min="0" class="input-field" placeholder="80 000" />
+        </div>
+        <div>
+          <label class="form-label">Зарплата до, ₽</label>
+          <input id="v-sal-max" type="number" min="0" class="input-field" placeholder="150 000" />
+        </div>
+      </div>
+      <div>
+        <label class="form-label">Статус вакансии</label>
+        <select id="v-status" class="input-field">
+          <option value="open">Открыта</option>
+          <option value="in_work">В работе</option>
+          <option value="closed">Закрыта</option>
+          <option value="archive">Архив</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">📝 Внутренние заметки рекрутера</label>
+        <textarea id="v-notes" rows="3" class="input-field" placeholder="Только для вас — особенности вакансии, договорённости…"></textarea>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="btn-primary flex-1 py-2">Сохранить</button>
+        <button type="button" onclick="closeModal('modal-vacancy')" class="btn-secondary flex-1 py-2">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Candidate drawer (side panel) ─────────────────────────────────── -->
+<div id="candidate-drawer" class="fixed inset-0 z-50 hidden">
+  <!-- Backdrop -->
+  <div class="absolute inset-0 bg-black/40" onclick="closeDrawer()"></div>
+  <!-- Panel -->
+  <div id="drawer-panel" class="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-2xl flex flex-col transform translate-x-full transition-transform duration-300">
+
+    <!-- Header -->
+    <div class="flex items-start justify-between px-6 pt-5 pb-4 border-b bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-tl-2xl">
+      <div>
+        <h2 id="drawer-name" class="text-xl font-bold leading-tight"></h2>
+        <div id="drawer-position" class="text-indigo-200 text-sm mt-0.5"></div>
+      </div>
+      <div class="flex items-center gap-2 ml-4 flex-shrink-0">
+        <button id="drawer-pin-btn" onclick="drawerTogglePin()" class="text-2xl hover:scale-110 transition-transform" title="Закрепить"></button>
+        <button onclick="closeDrawer()" class="text-indigo-200 hover:text-white text-3xl leading-none">×</button>
+      </div>
+    </div>
+
+    <!-- Scrollable content -->
+    <div class="flex-1 overflow-y-auto">
+
+      <!-- Status bar -->
+      <div class="px-6 py-3 bg-slate-50 border-b flex items-center gap-3 flex-wrap">
+        <span class="text-xs text-slate-500 font-medium">Статус:</span>
+        <select id="drawer-status" onchange="drawerSetStatus(this.value)" class="text-xs font-semibold px-3 py-1 rounded-full border-0 cursor-pointer"></select>
+        <span id="drawer-added" class="text-xs text-slate-400 ml-auto"></span>
+      </div>
+
+      <!-- 📞 Планирование звонка -->
+      <div class="mx-5 mt-5 rounded-xl border-2 border-indigo-100 bg-indigo-50 p-4">
+        <h3 class="font-bold text-indigo-700 mb-3 flex items-center gap-2">📞 Запланировать</h3>
+        <form onsubmit="drawerAddReminder(event)" class="space-y-2">
+          <input id="drawer-rem-note" type="text" required class="input-field text-sm"
+            placeholder="Перезвонить, уточнить зарплату, отправить оффер…" />
+          <div class="flex gap-2">
+            <input id="drawer-rem-date" type="date" class="input-field text-sm flex-1" />
+            <input id="drawer-rem-time" type="time" class="input-field text-sm w-28" value="10:00" />
+            <button type="submit" class="btn-primary btn-sm whitespace-nowrap">+ В план</button>
+          </div>
+        </form>
+        <!-- Active reminders for this candidate -->
+        <div id="drawer-reminders" class="mt-3 space-y-1.5"></div>
+      </div>
+
+      <!-- 👤 Личные данные -->
+      <div class="mx-5 mt-4">
+        <h3 class="section-title">👤 Личные данные</h3>
+        <div class="drawer-grid">
+          <div class="drawer-label">Телефон</div>
+          <div id="dr-phone" class="drawer-val"></div>
+          <div class="drawer-label">Авто</div>
+          <div id="dr-car" class="drawer-val"></div>
+          <div class="drawer-label">Р-н проживания</div>
+          <div id="dr-res" class="drawer-val"></div>
+          <div class="drawer-label">Р-н работы</div>
+          <div id="dr-work" class="drawer-val"></div>
+        </div>
+      </div>
+
+      <!-- 💼 Профессиональное -->
+      <div class="mx-5 mt-4">
+        <h3 class="section-title">💼 Профессиональное</h3>
+        <div class="drawer-grid">
+          <div class="drawer-label">Источник</div>
+          <div id="dr-source" class="drawer-val"></div>
+          <div class="drawer-label">Опыт / заметки</div>
+          <div id="dr-exp" class="drawer-val col-span-1 whitespace-pre-wrap"></div>
+        </div>
+      </div>
+
+      <!-- 🔗 Ссылки -->
+      <div class="mx-5 mt-4">
+        <h3 class="section-title">🔗 Ссылки</h3>
+        <div class="space-y-1.5" id="dr-links"></div>
+      </div>
+
+      <!-- 📝 Связь -->
+      <div class="mx-5 mt-4">
+        <h3 class="section-title">📝 Последний контакт</h3>
+        <div id="dr-contact" class="text-slate-600 text-sm bg-slate-50 rounded-lg px-3 py-2"></div>
+      </div>
+
+      <!-- 💬 Комментарии -->
+      <div class="mx-5 mt-4 mb-4">
+        <h3 class="section-title">💬 Комментарии</h3>
+        <div id="drawer-comments" class="space-y-2 max-h-48 overflow-y-auto mb-2"></div>
+        <form onsubmit="drawerAddComment(event)" class="flex gap-2">
+          <input id="drawer-comment-text" type="text" class="input-field flex-1 text-sm" placeholder="Добавить комментарий…" />
+          <button type="submit" class="btn-primary btn-sm px-4">↑</button>
+        </form>
+      </div>
+
+    </div>
+
+    <!-- Footer actions -->
+    <div class="border-t px-5 py-3 flex gap-2 bg-slate-50">
+      <button onclick="drawerEdit()" class="btn-primary btn-sm flex-1">✏️ Редактировать</button>
+      <button onclick="drawerOpenComments()" class="btn-secondary btn-sm flex-1">💬 Все комментарии</button>
+      <button onclick="drawerDelete()" class="btn-secondary btn-sm px-3 text-red-400 hover:text-red-600">🗑️</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Bulk vacancy modal ──────────────────────────────────────────────── -->
+<div id="modal-bulk-vacancy" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+    <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
+      <h3 class="text-lg font-bold text-slate-800">Добавить в вакансию</h3>
+      <button onclick="closeModal('modal-bulk-vacancy')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+    </div>
+    <div id="bulk-vac-list" class="flex-1 overflow-y-auto px-6 py-4 space-y-1.5"></div>
+  </div>
+</div>
+
+<!-- ── Comments modal ────────────────────────────────────────────────── -->
+<div id="modal-comments" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+    <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
+      <h3 id="comments-candidate-name" class="text-lg font-bold text-slate-800">Комментарии</h3>
+      <button onclick="closeModal('modal-comments')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+    </div>
+    <div id="comments-list" class="flex-1 overflow-y-auto px-6 py-4 space-y-3"></div>
+    <form onsubmit="addComment(event)" class="px-6 pb-5 pt-3 border-t flex gap-2">
+      <input type="hidden" id="comment-cand-id" />
+      <input id="comment-text" type="text" required class="input-field flex-1" placeholder="Напишите комментарий…" />
+      <button type="submit" class="btn-primary px-5">↑</button>
+    </form>
+  </div>
+</div>
+
+<!-- ── Stage history modal ───────────────────────────────────────────── -->
+<div id="modal-history" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
+    <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
+      <h3 class="text-lg font-bold text-slate-800">История этапов</h3>
+      <button onclick="closeModal('modal-history')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+    </div>
+    <div id="history-body" class="px-6 py-5"></div>
+  </div>
+</div>
+
+<!-- ── Reminder modal ────────────────────────────────────────────────── -->
+<div id="modal-reminder" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
+      <h3 class="text-lg font-bold text-slate-800">Создать напоминание</h3>
+      <button onclick="closeModal('modal-reminder')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+    </div>
+    <form onsubmit="saveReminder(event)" class="px-6 py-5 space-y-4">
+      <input type="hidden" id="rem-cand-id" />
+      <div>
+        <label class="form-label">Заметка *</label>
+        <textarea id="rem-note" rows="3" required class="input-field" placeholder="Что нужно сделать…"></textarea>
+      </div>
+      <div>
+        <label class="form-label">Дата</label>
+        <input id="rem-date" type="date" class="input-field" />
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="btn-primary flex-1 py-2">Создать</button>
+        <button type="button" onclick="closeModal('modal-reminder')" class="btn-secondary flex-1 py-2">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Link candidate modal ──────────────────────────────────────────── -->
+<div id="modal-link" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+    <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
+      <h3 class="text-lg font-bold text-slate-800">Привязать кандидата</h3>
+      <button onclick="closeModal('modal-link')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+    </div>
+    <div class="px-6 pt-4 pb-2">
+      <input id="link-search" type="text" onkeyup="filterLinkList()" class="input-field w-full" placeholder="Поиск…" />
+    </div>
+    <div id="link-list" class="flex-1 overflow-y-auto px-6 pb-5 space-y-1.5 mt-2"></div>
+  </div>
+</div>
+
+<!-- ── Email modal ───────────────────────────────────────────────────── -->
+<div id="modal-email" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+    <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
+      <h3 id="email-modal-title" class="text-lg font-bold text-slate-800">Отправить письмо</h3>
+      <button onclick="closeModal('modal-email')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+    </div>
+    <div class="px-6 py-5">
+      <p id="email-modal-desc" class="text-slate-600 mb-5 leading-relaxed"></p>
+      <div class="flex gap-3">
+        <button onclick="confirmSendEmail()" class="btn-primary flex-1 py-2">Отправить ✉️</button>
+        <button onclick="closeModal('modal-email')" class="btn-secondary flex-1 py-2">Отмена</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     TAILWIND SHORTCUTS via <style>
+═════════════════════════════════════════════════════════════════════ -->
+<style>
+  /* Reusable class shortcuts (Tailwind @apply not available in CDN without config) */
+  .input-field {
+    display: block; width: 100%;
+    border: 1px solid #e2e8f0; border-radius: .5rem;
+    padding: .45rem .75rem; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+    font-size: .875rem; background: white;
+  }
+  .input-field:focus { border-color: #818cf8; box-shadow: 0 0 0 3px rgba(129,140,248,.2); }
+
+  .form-label { display: block; font-weight: 600; color: #475569; margin-bottom: .25rem; font-size: .8125rem; }
+
+  .btn-primary {
+    display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+    background: #4f46e5; color: #fff; font-weight: 600; border-radius: .5rem;
+    padding: .4rem .9rem; transition: background .15s; cursor: pointer; border: none;
+    font-size: .8125rem;
+  }
+  .btn-primary:hover { background: #4338ca; }
+
+  .btn-secondary {
+    display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+    background: #f1f5f9; color: #475569; font-weight: 600; border-radius: .5rem;
+    padding: .4rem .9rem; transition: background .15s; cursor: pointer; border: none;
+    font-size: .8125rem;
+  }
+  .btn-secondary:hover { background: #e2e8f0; }
+
+  .btn-sm { padding: .35rem .8rem; font-size: .8125rem; }
+
+  .card { background: white; border-radius: .75rem; box-shadow: 0 1px 4px rgba(0,0,0,.07); }
+
+  .page-title { font-size: 1.35rem; font-weight: 800; color: #1e293b; margin-bottom: 1.5rem; }
+
+  .th { padding: .65rem 1rem; font-weight: 600; color: #64748b; text-align: left; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+
+  .view { /* nothing — just a semantic class */ }
+
+  /* Kanban stage header colours */
+  .stage-Новый         { background: #3b82f6; }
+  .stage-Собеседование { background: #f59e0b; }
+  .stage-Оффер         { background: #8b5cf6; }
+  .stage-Принят        { background: #10b981; }
+  .stage-Отказ         { background: #ef4444; }
+
+  .stage-border-Новый         { border-color: #bfdbfe; background: #eff6ff; }
+  .stage-border-Собеседование { border-color: #fde68a; background: #fffbeb; }
+  .stage-border-Оффер         { border-color: #ddd6fe; background: #f5f3ff; }
+  .stage-border-Принят        { border-color: #a7f3d0; background: #ecfdf5; }
+  .stage-border-Отказ         { border-color: #fecaca; background: #fef2f2; }
+
+  /* Sortable headers */
+  .rem-sort-btn { background:#f8fafc; border-color:#e2e8f0; color:#64748b; }
+  .rem-sort-btn:hover { border-color:#a5b4fc; color:#4f46e5; background:#eef2ff; }
+  .rem-sort-btn.active { background:#eef2ff; border-color:#6366f1; color:#4338ca; }
+  .th-sort { padding: .65rem 1rem; font-weight: 600; color: #64748b; text-align: left;
+    font-size: .8rem; text-transform: uppercase; letter-spacing: .04em;
+    cursor: pointer; user-select: none; white-space: nowrap; }
+  .th-sort:hover { color: #4f46e5; background: #f8fafc; }
+  .sort-icon::after { content: ' ⇅'; color: #cbd5e1; font-size: .7rem; }
+  .sort-icon.asc::after  { content: ' ▲'; color: #4f46e5; }
+  .sort-icon.desc::after { content: ' ▼'; color: #4f46e5; }
+
+  /* Status badges */
+  .badge-active  { background:#dcfce7; color:#15803d; }
+  .badge-in_work { background:#dbeafe; color:#1d4ed8; }
+  .badge-archive { background:#f1f5f9; color:#94a3b8; }
+
+  /* Candidate drawer */
+  .drawer-open  #drawer-panel { transform: translateX(0); }
+  .section-title { font-weight: 700; color: #475569; font-size: .8rem;
+    text-transform: uppercase; letter-spacing: .06em; margin-bottom: .5rem; }
+  .drawer-grid  { display: grid; grid-template-columns: 7rem 1fr; gap: .35rem .75rem; align-items: start; }
+  .drawer-label { font-size: .78rem; color: #94a3b8; font-weight: 600; padding-top: .1rem; }
+  .drawer-val   { font-size: .875rem; color: #334155; }
+  .cand-name-btn { cursor: pointer; text-decoration: underline; text-decoration-style: dotted;
+    color: #4f46e5; font-weight: 600; }
+  .cand-name-btn:hover { color: #3730a3; }
+
+  /* ── Mobile bottom nav ── */
+  #mobile-nav {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+    background: #1e1b4b; border-top: 1px solid rgba(255,255,255,.12);
+    display: none;
+    padding: 0 0 env(safe-area-inset-bottom, 0);
+  }
+  #mobile-nav .mob-btn {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    gap: 2px; padding: 8px 4px 10px; color: rgba(255,255,255,.55);
+    font-size: 9.5px; font-weight: 600; letter-spacing: .02em;
+    border: none; background: none; cursor: pointer; transition: color .15s;
+    position: relative;
+  }
+  #mobile-nav .mob-btn .mob-icon { font-size: 20px; line-height: 1; }
+  #mobile-nav .mob-btn.active { color: #a5b4fc; }
+  #mobile-nav .mob-btn.active::before {
+    content: ''; position: absolute; top: 0; left: 25%; right: 25%;
+    height: 2px; background: #818cf8; border-radius: 0 0 4px 4px;
+  }
+  #mobile-nav .mob-badge {
+    position: absolute; top: 5px; right: calc(50% - 18px);
+    background: #ef4444; color: #fff; border-radius: 999px;
+    font-size: 9px; padding: 1px 5px; font-weight: 700; line-height: 1.4;
+    display: none;
+  }
+  #mobile-nav .mob-badge.visible { display: block; }
+
+  /* ── Mobile candidate cards ── */
+  .mob-cand-card {
+    background: white; border-radius: .75rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    padding: .85rem 1rem; display: flex; flex-direction: column; gap: .5rem;
+  }
+  .mob-cand-top { display: flex; align-items: flex-start; gap: .5rem; }
+  .mob-cand-name { font-weight: 700; color: #4f46e5; font-size: .95rem;
+    text-decoration: underline; text-decoration-style: dotted; flex: 1; }
+  .mob-cand-meta { font-size: .8rem; color: #64748b; display: flex; flex-wrap: wrap; gap: .3rem .75rem; }
+  .mob-cand-meta span::before { content: ''; }
+  .mob-cand-actions { display: flex; gap: .4rem; justify-content: flex-end; margin-top: .25rem; }
+
+  /* ── Responsive breakpoints ── */
+  @media (max-width: 767px) {
+    #mobile-nav { display: flex; }
+    #sidebar-desktop { display: none !important; }
+    #main-content { margin-left: 0 !important; padding: .75rem !important; padding-bottom: 5.5rem !important; }
+    .candidates-table-wrap { display: none !important; }
+    #cand-cards { display: block !important; }
+    /* full-screen modals on mobile — slide up from bottom */
+    .modal-overlay { align-items: flex-end !important; padding: 0 !important; }
+    .modal-overlay > div {
+      max-width: 100% !important; width: 100% !important;
+      border-radius: 1.25rem 1.25rem 0 0 !important;
+      margin: 0 !important; max-height: 92vh !important;
+    }
+    /* drawer full-width on mobile */
+    #drawer-panel { max-width: 100% !important; }
+    /* stack search inputs */
+    #cand-search-row { flex-direction: column !important; }
+    #cand-search-row input { flex: unset !important; }
+    /* wrap action buttons */
+    .cand-header-btns { justify-content: flex-end; }
+    /* kanban horizontal scroll hint */
+    #kanban-board { padding-bottom: 5rem !important; }
+    /* dashboard stats 2 cols */
+    .dash-stats { grid-template-columns: repeat(2,1fr) !important; }
+    /* page title smaller */
+    .page-title { font-size: 1.1rem; margin-bottom: 1rem; }
+  }
+  @media (min-width: 768px) {
+    #cand-cards { display: none !important; }
+    .candidates-table-wrap { display: block !important; }
+  }
+</style>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     JAVASCRIPT
+═════════════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+/* ──────────────────────────────────────────────────────────────────────
+   ██████  CONFIG  ██████
+   Замените значения ниже своими ключами.
+   ──────────────────────────────────────────────────────────────────── */
+
+// ① Supabase  →  app.supabase.com  →  ваш проект  →  Settings → API
+const SUPABASE_URL      = 'https://xbqunyukacahlotbgrma.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhicXVueXVrYWNhaGxvdGJncm1hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNzExMDIsImV4cCI6MjA5NDg0NzEwMn0.v63tntbHumEOe3I7oHus1TAmo-D8mWJVhkTZLiK-UA4';               // ← ЗАМЕНИТЬ
+
+// ② EmailJS  →  https://www.emailjs.com
+//    Создайте Email Service (Gmail / Outlook / …) и 3 шаблона.
+//    Переменные в шаблонах: {{to_name}}, {{to_email}},
+//                           {{recruiter_name}}, {{vacancy_name}}
+const EMAILJS_PUBLIC_KEY         = 'YOUR_EMAILJS_PUBLIC_KEY';        // ← ЗАМЕНИТЬ
+const EMAILJS_SERVICE_ID         = 'YOUR_SERVICE_ID';                // ← ЗАМЕНИТЬ
+const EMAILJS_TMPL_INVITATION    = 'YOUR_TEMPLATE_INVITATION';       // ← ЗАМЕНИТЬ
+const EMAILJS_TMPL_OFFER         = 'YOUR_TEMPLATE_OFFER';            // ← ЗАМЕНИТЬ
+const EMAILJS_TMPL_REJECTION     = 'YOUR_TEMPLATE_REJECTION';        // ← ЗАМЕНИТЬ
+
+/* ──────────────────────────────────────────────────────────────────────
+   ИНИЦИАЛИЗАЦИЯ
+   ──────────────────────────────────────────────────────────────────── */
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+emailjs.init(EMAILJS_PUBLIC_KEY);
+
+/* ──────────────────────────────────────────────────────────────────────
+   СОСТОЯНИЕ
+   ──────────────────────────────────────────────────────────────────── */
+let currentUser    = null;
+let currentProfile = null;
+let allCandidates  = [];
+let allVacancies   = [];
+let currentVacId   = null;
+let currentVacTitle = '';
+let pendingEmail   = null;  // { candidate, type }
+let stagesChart    = null;
+
+const STAGES = ['Новый', 'Собеседование', 'Оффер', 'Принят', 'Отказ'];
+
+// ── Сортировка и выбор ─────────────────────────────────────────────
+let sortField = null;
+let sortDir   = 1;   // 1 = asc, -1 = desc
+let reminderSortDir = 'asc';   // 'asc' | 'desc' | 'none'
+let allRemindersCache = [];    // кеш для перерисовки без запроса
+let selectedIds = new Set();
+
+const STATUS_LABELS = { active: 'Активный', in_work: 'В работе', archive: 'Архив' };
+const STATUS_BADGE  = { active: 'badge-active', in_work: 'badge-in_work', archive: 'badge-archive' };
+
+// ── Сортировка ────────────────────────────────────────────────────
+function sortBy(field) {
+  if (sortField === field) sortDir *= -1;
+  else { sortField = field; sortDir = 1; }
+  document.querySelectorAll('.sort-icon').forEach(el => el.classList.remove('asc','desc'));
+  const icon = document.querySelector(`.sort-icon[data-col="${field}"]`);
+  if (icon) icon.classList.add(sortDir === 1 ? 'asc' : 'desc');
+  filterCandidates();
+}
+
+// ── Массовый выбор ────────────────────────────────────────────────
+function toggleSelect(id, el) {
+  if (el.checked) selectedIds.add(id);
+  else selectedIds.delete(id);
+  updateBulkBar();
+}
+
+function toggleSelectAll(el) {
+  const checkboxes = document.querySelectorAll('.row-check');
+  checkboxes.forEach(cb => {
+    cb.checked = el.checked;
+    if (el.checked) selectedIds.add(cb.dataset.id);
+    else selectedIds.delete(cb.dataset.id);
+  });
+  updateBulkBar();
+}
+
+function clearSelection() {
+  selectedIds.clear();
+  document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
+  const sa = document.getElementById('select-all');
+  if (sa) sa.checked = false;
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulk-bar');
+  const cnt = document.getElementById('bulk-count');
+  if (selectedIds.size > 0) {
+    bar.classList.remove('hidden');
+    cnt.textContent = `Выбрано: ${selectedIds.size}`;
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+async function bulkDelete() {
+  if (!selectedIds.size) return;
+  if (!confirm(`Удалить ${selectedIds.size} кандидатов?`)) return;
+  const ids = [...selectedIds];
+  const { error } = await sb.from('candidates').delete().in('id', ids);
+  if (error) { toast('Ошибка удаления: ' + error.message, 'err'); return; }
+  toast(`Удалено: ${ids.length}`);
+  clearSelection();
+  loadCandidates();
+}
+
+function openBulkVacancyModal() {
+  const list = document.getElementById('bulk-vac-list');
+  if (!allVacancies.length) {
+    list.innerHTML = '<p class="text-slate-400 text-center py-6">Нет вакансий</p>';
+  } else {
+    list.innerHTML = allVacancies.filter(v => v.status === 'open').map(v => `
+      <button onclick="bulkAssignVacancy('${v.id}')"
+        class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition">
+        <div class="font-semibold text-slate-800">${esc(v.title)}</div>
+      </button>`).join('');
+  }
+  openModal('modal-bulk-vacancy');
+}
+
+async function bulkAssignVacancy(vacId) {
+  const ids = [...selectedIds];
+  let ok = 0, skip = 0;
+  for (const candId of ids) {
+    const { error } = await sb.from('candidacies').insert({
+      candidate_id: candId, vacancy_id: vacId, current_stage: 'Новый'
+    });
+    error ? skip++ : ok++;
+  }
+  toast(`Добавлено в вакансию: ${ok}${skip ? `, уже привязаны: ${skip}` : ''}`);
+  closeModal('modal-bulk-vacancy');
+  clearSelection();
+}
+
+// ── Закрепление ───────────────────────────────────────────────────
+async function togglePin(id, current) {
+  const { error } = await sb.from('candidates').update({ is_pinned: !current }).eq('id', id);
+  if (error) { toast('Ошибка', 'err'); return; }
+  loadCandidates();
+}
+
+// ── Статус кандидата ──────────────────────────────────────────────
+async function setStatus(id, status) {
+  const { error } = await sb.from('candidates').update({ status }).eq('id', id);
+  if (error) { toast('Ошибка', 'err'); return; }
+  toast('Статус обновлён');
+  loadCandidates();
+}
+
+// ── Фильтры ───────────────────────────────────────────────────────
+function toggleFilters() {
+  const panel = document.getElementById('filters-panel');
+  const btn   = document.getElementById('filters-toggle-btn');
+  const open  = panel.classList.toggle('hidden');
+  btn.classList.toggle('btn-primary', !open);
+  btn.classList.toggle('btn-secondary', open);
+}
+
+function resetFilters() {
+  document.getElementById('search-name').value     = '';
+  document.getElementById('search-position').value = '';
+  document.getElementById('filter-status').value   = '';
+  document.getElementById('filter-car').value      = '';
+  document.getElementById('filter-district').value = '';
+  document.getElementById('filter-date').value     = '';
+  sortField = null; sortDir = 1;
+  document.querySelectorAll('.sort-icon').forEach(el => el.classList.remove('asc','desc'));
+  filterCandidates();
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   УТИЛИТЫ
+   ──────────────────────────────────────────────────────────────────── */
+function esc(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function money(n) {
+  if (!n && n !== 0) return '—';
+  return new Intl.NumberFormat('ru-RU').format(n) + ' ₽';
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleString('ru-RU', {
+    day:'2-digit', month:'2-digit', year:'numeric',
+    hour:'2-digit', minute:'2-digit'
+  });
+}
+
+function fmtDay(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('ru-RU');
+}
+
+function toast(msg, type = 'ok') {
+  const colors = { ok:'bg-emerald-600', err:'bg-red-600', info:'bg-indigo-600' };
+  const el = document.createElement('div');
+  el.className = `toast-enter pointer-events-auto ${colors[type]||colors.ok} text-white text-sm font-medium px-4 py-3 rounded-xl shadow-lg max-w-xs`;
+  el.textContent = msg;
+  const c = document.getElementById('toast-container');
+  c.appendChild(el);
+  setTimeout(() => { el.classList.remove('toast-enter'); el.classList.add('toast-leave'); }, 3400);
+  setTimeout(() => el.remove(), 3800);
+}
+
+function openModal(id)  { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+/* ──────────────────────────────────────────────────────────────────────
+   АУТЕНТИФИКАЦИЯ
+   ──────────────────────────────────────────────────────────────────── */
+function switchAuthTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('auth-login').classList.toggle('hidden', !isLogin);
+  document.getElementById('auth-register').classList.toggle('hidden', isLogin);
+  const activeClass  = 'font-semibold text-indigo-600 border-b-2 border-indigo-600';
+  const idleClass    = 'font-semibold text-slate-400 border-b-2 border-transparent';
+  document.getElementById('auth-tab-login').className    = isLogin  ? activeClass : idleClass;
+  document.getElementById('auth-tab-register').className = !isLogin ? activeClass : idleClass;
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { toast('Ошибка входа: ' + error.message, 'err'); return; }
+  currentUser = data.user;
+  await loadProfile();
+  showApp();
+}
+
+async function handleRegister(e) {
+  e.preventDefault();
+  const fullName = document.getElementById('reg-name').value.trim();
+  const email    = document.getElementById('reg-email').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const { error } = await sb.auth.signUp({
+    email, password,
+    options: { data: { full_name: fullName } }
+  });
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+  toast('Аккаунт создан! Проверьте email для подтверждения.', 'info');
+  switchAuthTab('login');
+}
+
+async function handleLogout() {
+  await sb.auth.signOut();
+  currentUser = currentProfile = null;
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('auth-page').classList.remove('hidden');
+}
+
+async function loadProfile() {
+  if (!currentUser) return;
+  const { data, error } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
+  if (error || !data) {
+    // Create profile manually (trigger may not have fired yet)
+    const name = currentUser.user_metadata?.full_name || currentUser.email;
+    const { data: np } = await sb.from('profiles').upsert({
+      id: currentUser.id, full_name: name, role: 'recruiter'
+    }, { onConflict: 'id' }).select().single();
+    currentProfile = np;
+  } else {
+    currentProfile = data;
+  }
+  document.getElementById('user-display').textContent =
+    currentProfile?.full_name || currentUser.email;
+}
+
+function showApp() {
+  document.getElementById('auth-page').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  showView('dashboard');
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   НАВИГАЦИЯ
+   ──────────────────────────────────────────────────────────────────── */
+function showView(name) {
+  document.querySelectorAll('.view').forEach(el => el.classList.add('hidden'));
+  const el = document.getElementById('view-' + name);
+  if (el) el.classList.remove('hidden');
+
+  // Desktop sidebar active state
+  document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+  const btn = document.querySelector(`.nav-btn[data-view="${name}"]`);
+  if (btn) btn.classList.add('active');
+
+  // Mobile bottom nav active state
+  document.querySelectorAll('#mobile-nav .mob-btn').forEach(b => b.classList.remove('active'));
+  const mobBtn = document.querySelector(`#mobile-nav .mob-btn[data-mob="${name}"]`);
+  if (mobBtn) mobBtn.classList.add('active');
+
+  if (name === 'dashboard') loadDashboard();
+  else if (name === 'candidates') loadCandidates();
+  else if (name === 'vacancies') loadVacancies();
+  else if (name === 'reminders') loadReminders();
+  // 'kanban' is opened separately via openKanban()
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   КАНДИДАТЫ
+   ──────────────────────────────────────────────────────────────────── */
+async function loadCandidates() {
+  const { data, error } = await sb.from('candidates')
+    .select('*').eq('recruiter_id', currentUser.id)
+    .order('created_at', { ascending: false });
+  if (error) { toast('Ошибка загрузки кандидатов', 'err'); return; }
+  allCandidates = data || [];
+  renderCandidates(allCandidates);
+}
+
+function renderCandidates(list) {
+  const tbody = document.getElementById('cand-tbody');
+  const cards = document.getElementById('cand-cards');
+
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="14" class="py-10 text-center text-slate-400">Нет кандидатов</td></tr>';
+    cards.innerHTML = '<div class="card p-8 text-center text-slate-400">Нет кандидатов</div>';
+    return;
+  }
+
+  // ── Desktop table ─────────────────────────────────────────────────
+  tbody.innerHTML = list.map(c => {
+    const carBadge = c.has_car === 'Да'
+      ? '<span class="bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded-full">✅ Да</span>'
+      : c.has_car === 'Нет'
+        ? '<span class="bg-red-50 text-red-400 text-xs px-2 py-0.5 rounded-full">✗ Нет</span>'
+        : '<span class="text-slate-300">—</span>';
+    const status    = c.status || 'active';
+    const statusLbl = STATUS_LABELS[status] || status;
+    const statusCls = STATUS_BADGE[status]  || 'badge-active';
+    const pinned    = c.is_pinned;
+    const checked   = selectedIds.has(c.id) ? 'checked' : '';
+    return `<tr class="border-b border-slate-100 hover:bg-slate-50 transition ${pinned ? 'bg-amber-50/40' : ''}">
+      <td class="px-3 py-3">
+        <input type="checkbox" class="row-check rounded" data-id="${c.id}" ${checked}
+          onchange="toggleSelect('${c.id}', this)" />
+      </td>
+      <td class="px-1 py-3 text-center">
+        <button onclick="togglePin('${c.id}', ${pinned})" title="${pinned ? 'Открепить' : 'Закрепить'}"
+          class="text-lg leading-none hover:scale-110 transition-transform">
+          ${pinned ? '⭐' : '☆'}
+        </button>
+      </td>
+      <td class="px-4 py-3 whitespace-nowrap">
+        <button onclick="openDrawer('${c.id}')" class="cand-name-btn block text-left">${esc(c.full_name)}</button>
+        ${c.experience ? `<div class="text-xs text-slate-400 truncate max-w-[140px]">${esc(c.experience)}</div>` : ''}
+      </td>
+      <td class="px-3 py-3">
+        <select onchange="setStatus('${c.id}', this.value)"
+          class="text-xs font-semibold px-2 py-0.5 rounded-full border-0 cursor-pointer ${statusCls}">
+          <option value="active"  ${status==='active'  ?'selected':''}>Активный</option>
+          <option value="in_work" ${status==='in_work' ?'selected':''}>В работе</option>
+          <option value="archive" ${status==='archive' ?'selected':''}>Архив</option>
+        </select>
+      </td>
+      <td class="px-4 py-3 text-slate-500 whitespace-nowrap">${esc(c.phone||'—')}</td>
+      <td class="px-4 py-3 text-slate-500">${esc(c.district_residence||'—')}</td>
+      <td class="px-4 py-3 text-slate-500">${esc(c.district_work||'—')}</td>
+      <td class="px-4 py-3">${carBadge}</td>
+      <td class="px-4 py-3 text-slate-700 whitespace-nowrap">${esc(c.position||'—')}</td>
+      <td class="px-4 py-3 text-slate-500">${esc(c.resume_source||'—')}</td>
+      <td class="px-4 py-3 text-slate-500 max-w-[160px]">
+        <div class="truncate" title="${esc(c.contact_status)}">${esc(c.contact_status||'—')}</div>
+      </td>
+      <td class="px-4 py-3">
+        ${c.candidate_link
+          ? `<a href="${esc(c.candidate_link)}" target="_blank" class="text-indigo-500 hover:underline text-xs whitespace-nowrap">👤 Открыть</a>`
+          : '<span class="text-slate-300">—</span>'}
+      </td>
+      <td class="px-4 py-3">
+        ${c.resume_url
+          ? `<a href="${esc(c.resume_url)}" target="_blank" class="text-indigo-500 hover:underline text-xs whitespace-nowrap">📎 Открыть</a>`
+          : '<span class="text-slate-300">—</span>'}
+      </td>
+      <td class="px-4 py-3">
+        <div class="flex flex-wrap gap-1">
+          <button onclick="openCandidateModal('${c.id}')" title="Редактировать" class="action-btn text-blue-500">✏️</button>
+          <button onclick="deleteCandidate('${c.id}','${esc(c.full_name)}')" title="Удалить" class="action-btn text-red-400">🗑️</button>
+          <button onclick="openCommentsModal('${c.id}','${esc(c.full_name)}')" title="Комментарии" class="action-btn text-slate-500">💬</button>
+          <button onclick="openReminderModal('${c.id}')" title="Напоминание" class="action-btn text-amber-500">🔔</button>
+          <button onclick="openEmailModal('${c.id}','invitation')" title="Приглашение" class="action-btn text-emerald-500">📩</button>
+          <button onclick="openEmailModal('${c.id}','offer')"      title="Оффер"       class="action-btn text-purple-500">🎉</button>
+          <button onclick="openEmailModal('${c.id}','rejection')"  title="Отказ"       class="action-btn text-red-400">❌</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // ── Mobile cards ──────────────────────────────────────────────────
+  cards.innerHTML = list.map(c => {
+    const status    = c.status || 'active';
+    const statusLbl = STATUS_LABELS[status] || status;
+    const statusCls = STATUS_BADGE[status]  || 'badge-active';
+    const pinned    = c.is_pinned;
+
+    const metaParts = [
+      c.phone         ? `📞 ${esc(c.phone)}` : null,
+      c.position      ? `💼 ${esc(c.position)}` : null,
+      c.district_residence ? `🏠 ${esc(c.district_residence)}` : null,
+      c.has_car === 'Да' ? '🚗 Есть авто' : null,
+      c.resume_source ? `📋 ${esc(c.resume_source)}` : null,
+    ].filter(Boolean);
+
+    return `<div class="mob-cand-card ${pinned ? 'border-l-4 border-amber-400' : ''}">
+      <div class="mob-cand-top">
+        <div style="flex:1">
+          <button onclick="openDrawer('${c.id}')" class="mob-cand-name text-left w-full">${esc(c.full_name)}</button>
+          ${c.experience ? `<div style="font-size:.75rem;color:#94a3b8;margin-top:1px">${esc(c.experience)}</div>` : ''}
+        </div>
+        <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${statusCls}" style="white-space:nowrap;align-self:flex-start">${statusLbl}</span>
+        ${pinned ? '<span style="font-size:1.1rem;margin-left:2px">⭐</span>' : ''}
+      </div>
+      ${metaParts.length ? `<div class="mob-cand-meta">${metaParts.map(p=>`<span>${p}</span>`).join('')}</div>` : ''}
+      <div class="mob-cand-actions">
+        <button onclick="openDrawer('${c.id}')" class="btn-sm btn-primary" style="font-size:.75rem;padding:.3rem .7rem">
+          Открыть →
+        </button>
+        <button onclick="openReminderModal('${c.id}')" class="action-btn text-amber-500" title="Напоминание" style="font-size:1.2rem">🔔</button>
+        <button onclick="openCommentsModal('${c.id}','${esc(c.full_name)}')" class="action-btn text-slate-400" title="Комментарии" style="font-size:1.2rem">💬</button>
+        <button onclick="openCandidateModal('${c.id}')" class="action-btn text-blue-400" title="Редактировать" style="font-size:1.2rem">✏️</button>
+        <button onclick="deleteCandidate('${c.id}','${esc(c.full_name)}')" class="action-btn text-red-300" title="Удалить" style="font-size:1.2rem">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterCandidates() {
+  const nameQ    = document.getElementById('search-name').value.toLowerCase();
+  const posQ     = document.getElementById('search-position').value.toLowerCase();
+  const statusQ  = document.getElementById('filter-status')?.value   || '';
+  const carQ     = document.getElementById('filter-car')?.value      || '';
+  const distQ    = document.getElementById('filter-district')?.value.toLowerCase() || '';
+  const dateQ    = document.getElementById('filter-date')?.value     || '';
+
+  let list = allCandidates.filter(c => {
+    if (nameQ   && !c.full_name.toLowerCase().includes(nameQ)) return false;
+    if (posQ    && !(
+      (c.position||'').toLowerCase().includes(posQ) ||
+      (c.district_residence||'').toLowerCase().includes(posQ) ||
+      (c.district_work||'').toLowerCase().includes(posQ) ||
+      (c.resume_source||'').toLowerCase().includes(posQ)
+    )) return false;
+    if (statusQ && (c.status || 'active') !== statusQ) return false;
+    if (carQ    && c.has_car !== carQ) return false;
+    if (distQ   && !(c.district_residence||'').toLowerCase().includes(distQ)) return false;
+    if (dateQ   && c.created_at && c.created_at.slice(0,10) < dateQ) return false;
+    return true;
+  });
+
+  // Sort: pinned first, then by sortField
+  list.sort((a, b) => {
+    if (b.is_pinned !== a.is_pinned) return b.is_pinned ? 1 : -1;
+    if (!sortField) return 0;
+    const av = (a[sortField] || '').toString().toLowerCase();
+    const bv = (b[sortField] || '').toString().toLowerCase();
+    return av < bv ? -sortDir : av > bv ? sortDir : 0;
+  });
+
+  renderCandidates(list);
+}
+
+async function openCandidateModal(id = null) {
+  const form = document.getElementById('form-candidate');
+  form.reset();
+  document.getElementById('c-resume-hint').textContent = '';
+  document.getElementById('cand-id').value = id || '';
+  document.getElementById('cand-modal-title').textContent = id ? 'Редактировать кандидата' : 'Добавить кандидата';
+
+  if (id) {
+    const c = allCandidates.find(x => x.id === id);
+    if (c) {
+      document.getElementById('c-name').value          = c.full_name || '';
+      document.getElementById('c-phone').value         = c.phone || '';
+      document.getElementById('c-status').value        = c.status || 'active';
+      document.getElementById('c-has-car').value       = c.has_car || '';
+      document.getElementById('c-district-res').value  = c.district_residence || '';
+      document.getElementById('c-district-work').value = c.district_work || '';
+      document.getElementById('c-position').value      = c.position || '';
+      document.getElementById('c-source').value        = c.resume_source || '';
+      document.getElementById('c-contact').value       = c.contact_status || '';
+      document.getElementById('c-link').value          = c.candidate_link || '';
+      document.getElementById('c-resume-link').value   = c.resume_url || '';
+      document.getElementById('c-exp').value           = c.experience || '';
+      if (c.resume_url && c.resume_url.includes('supabase')) {
+        document.getElementById('c-resume-hint').textContent =
+          'Загружен файл: ' + decodeURIComponent(c.resume_url.split('/').pop().replace(/^\d+_/, ''));
+      }
+    }
+  }
+  openModal('modal-candidate');
+}
+
+async function saveCandidate(e) {
+  e.preventDefault();
+  const id = document.getElementById('cand-id').value;
+
+  // Upload resume if selected
+  let resumeUrl = undefined;
+  const file = document.getElementById('c-resume').files[0];
+  if (file) {
+    const path = `${currentUser.id}/${Date.now()}_${file.name}`;
+    const { error: upErr } = await sb.storage.from('resumes').upload(path, file, { upsert: true });
+    if (upErr) { toast('Ошибка загрузки резюме: ' + upErr.message, 'err'); return; }
+    const { data: urlData } = sb.storage.from('resumes').getPublicUrl(path);
+    resumeUrl = urlData.publicUrl;
+  }
+
+  // If no file uploaded, use manual URL field
+  if (resumeUrl === undefined) {
+    const manualLink = document.getElementById('c-resume-link').value.trim();
+    if (manualLink) resumeUrl = manualLink;
+  }
+
+  const fullName = document.getElementById('c-name').value.trim();
+  const phone    = document.getElementById('c-phone').value.trim() || null;
+  const editId   = document.getElementById('cand-id').value;
+
+  // ── Проверка дубликатов ──────────────────────────────────────────
+  const dupByName  = allCandidates.find(c => c.id !== editId && c.full_name.toLowerCase() === fullName.toLowerCase());
+  const dupByPhone = phone && allCandidates.find(c => c.id !== editId && c.phone === phone);
+  if (dupByName) {
+    if (!confirm(`Кандидат с именем «${dupByName.full_name}» уже есть в базе. Добавить всё равно?`)) return;
+  }
+  if (dupByPhone) {
+    if (!confirm(`Телефон ${phone} уже используется кандидатом «${dupByPhone.full_name}». Добавить всё равно?`)) return;
+  }
+
+  const payload = {
+    full_name:          fullName,
+    phone,
+    status:             document.getElementById('c-status').value || 'active',
+    has_car:            document.getElementById('c-has-car').value || null,
+    district_residence: document.getElementById('c-district-res').value.trim() || null,
+    district_work:      document.getElementById('c-district-work').value.trim() || null,
+    position:           document.getElementById('c-position').value.trim() || null,
+    resume_source:      document.getElementById('c-source').value.trim() || null,
+    contact_status:     document.getElementById('c-contact').value.trim() || null,
+    candidate_link:     document.getElementById('c-link').value.trim() || null,
+    experience:         document.getElementById('c-exp').value.trim() || null,
+  };
+  if (resumeUrl !== undefined) payload.resume_url = resumeUrl;
+
+  let error;
+  if (id) {
+    ({ error } = await sb.from('candidates').update(payload).eq('id', id));
+  } else {
+    payload.recruiter_id = currentUser.id;
+    ({ error } = await sb.from('candidates').insert(payload));
+  }
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+
+  toast(id ? 'Кандидат обновлён ✓' : 'Кандидат добавлен ✓');
+  closeModal('modal-candidate');
+  loadCandidates();
+}
+
+async function deleteCandidate(id, name) {
+  if (!confirm(`Удалить кандидата «${name}»?`)) return;
+  const { error } = await sb.from('candidates').delete().eq('id', id);
+  if (error) { toast('Ошибка удаления: ' + error.message, 'err'); return; }
+  toast('Кандидат удалён');
+  loadCandidates();
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   ВАКАНСИИ
+   ──────────────────────────────────────────────────────────────────── */
+async function loadVacancies() {
+  const { data, error } = await sb.from('vacancies')
+    .select('*').eq('recruiter_id', currentUser.id)
+    .order('created_at', { ascending: false });
+  if (error) { toast('Ошибка загрузки вакансий', 'err'); return; }
+  allVacancies = data || [];
+  renderVacancies(allVacancies);
+}
+
+function renderVacancies(list) {
+  const grid = document.getElementById('vac-grid');
+  if (!list.length) {
+    grid.innerHTML = '<div class="col-span-3 card p-10 text-center text-slate-400">Нет вакансий</div>';
+    return;
+  }
+  grid.innerHTML = list.map(v => {
+    const open = v.status === 'open';
+    return `<div class="card p-5 flex flex-col gap-3">
+      <div class="flex items-start gap-2">
+        <h3 class="font-bold text-slate-800 flex-1 leading-tight">${esc(v.title)}</h3>
+        <span class="text-xs px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${open ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">
+          ${open ? 'Открыта' : 'Закрыта'}
+        </span>
+      </div>
+      ${(v.salary_min||v.salary_max) ? `<p class="text-slate-500 text-xs">💰 ${money(v.salary_min)} — ${money(v.salary_max)}</p>` : ''}
+      ${v.description ? `<p class="text-slate-600 text-xs line-clamp-2">${esc(v.description)}</p>` : ''}
+      ${v.notes ? `<div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">📝 ${esc(v.notes)}</div>` : ''}
+      <div class="flex flex-wrap gap-1.5 mt-auto pt-1 border-t border-slate-100">
+        <button onclick="openKanban('${v.id}','${esc(v.title)}')" class="btn-primary btn-sm flex-1">📋 Канбан</button>
+        <button onclick="openVacancyModal('${v.id}')"             class="btn-secondary btn-sm px-2.5" title="Редактировать">✏️</button>
+        <button onclick="toggleVacStatus('${v.id}','${v.status}')" class="btn-secondary btn-sm">
+          ${open ? '🔒 Закрыть' : '🔓 Открыть'}
+        </button>
+        <button onclick="deleteVacancy('${v.id}','${esc(v.title)}')" class="btn-secondary btn-sm px-2.5 hover:bg-red-50 hover:text-red-500" title="Удалить">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function openVacancyModal(id = null) {
+  const form = document.getElementById('form-vacancy');
+  form.reset();
+  document.getElementById('vac-id').value = id || '';
+  document.getElementById('vac-modal-title').textContent = id ? 'Редактировать вакансию' : 'Создать вакансию';
+  if (id) {
+    const v = allVacancies.find(x => x.id === id);
+    if (v) {
+      document.getElementById('v-title').value   = v.title || '';
+      document.getElementById('v-desc').value    = v.description || '';
+      document.getElementById('v-req').value     = v.requirements || '';
+      document.getElementById('v-sal-min').value = v.salary_min || '';
+      document.getElementById('v-sal-max').value = v.salary_max || '';
+      document.getElementById('v-status').value  = v.status || 'open';
+      document.getElementById('v-notes').value   = v.notes || '';
+    }
+  }
+  openModal('modal-vacancy');
+}
+
+async function saveVacancy(e) {
+  e.preventDefault();
+  const id = document.getElementById('vac-id').value;
+  const payload = {
+    title:        document.getElementById('v-title').value.trim(),
+    description:  document.getElementById('v-desc').value.trim() || null,
+    requirements: document.getElementById('v-req').value.trim() || null,
+    salary_min:   parseInt(document.getElementById('v-sal-min').value) || null,
+    salary_max:   parseInt(document.getElementById('v-sal-max').value) || null,
+    status:       document.getElementById('v-status').value || 'open',
+    notes:        document.getElementById('v-notes').value.trim() || null,
+  };
+  let error;
+  if (id) {
+    ({ error } = await sb.from('vacancies').update(payload).eq('id', id));
+  } else {
+    payload.recruiter_id = currentUser.id;
+    payload.status = 'open';
+    ({ error } = await sb.from('vacancies').insert(payload));
+  }
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+  toast(id ? 'Вакансия обновлена ✓' : 'Вакансия создана ✓');
+  closeModal('modal-vacancy');
+  loadVacancies();
+}
+
+async function toggleVacStatus(id, current) {
+  const next = current === 'open' ? 'closed' : 'open';
+  const { error } = await sb.from('vacancies').update({ status: next }).eq('id', id);
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+  toast(`Вакансия ${next === 'open' ? 'открыта' : 'закрыта'}`);
+  loadVacancies();
+}
+
+async function deleteVacancy(id, title) {
+  if (!confirm(`Удалить вакансию «${title}»?`)) return;
+  const { data: linked } = await sb.from('candidacies').select('id').eq('vacancy_id', id);
+  if (linked?.length > 0 && !confirm(`К вакансии привязано ${linked.length} кандидатов. Удалить всё равно?`)) return;
+  const { error } = await sb.from('vacancies').delete().eq('id', id);
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+  toast('Вакансия удалена');
+  loadVacancies();
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   КАНБАН
+   ──────────────────────────────────────────────────────────────────── */
+async function openKanban(vacId, vacTitle) {
+  currentVacId    = vacId;
+  currentVacTitle = vacTitle;
+  document.getElementById('kanban-vac-title').textContent = vacTitle;
+  showView('kanban');
+  await loadKanban();
+}
+
+async function loadKanban() {
+  const { data, error } = await sb.from('candidacies')
+    .select('id, current_stage, created_at, candidates(id, full_name, email, phone, salary_expectation, skills)')
+    .eq('vacancy_id', currentVacId);
+  if (error) { toast('Ошибка загрузки канбана', 'err'); return; }
+  renderKanban(data || []);
+}
+
+function renderKanban(items) {
+  const board = document.getElementById('kanban-board');
+  board.innerHTML = STAGES.map(stage => {
+    const cards = items.filter(x => x.current_stage === stage);
+    const stageIdx = STAGES.indexOf(stage);
+    const prevStage = STAGES[stageIdx - 1] || null;
+    const nextStage = STAGES[stageIdx + 1] || null;
+
+    const cardHtml = cards.map(item => {
+      const c = item.candidates || {};
+      return `<div class="kanban-card rounded-xl border p-3 stage-border-${stage}">
+        <div class="font-semibold text-slate-800 leading-tight mb-1">${esc(c.full_name)}</div>
+        ${c.email  ? `<div class="text-xs text-slate-500 truncate">${esc(c.email)}</div>` : ''}
+        ${c.salary_expectation ? `<div class="text-xs text-slate-400">${money(c.salary_expectation)}</div>` : ''}
+        <div class="flex flex-wrap gap-1 mt-2">
+          ${prevStage ? `<button onclick="moveStage('${item.id}','${stage}','${prevStage}')"
+              class="text-xs bg-white border border-slate-200 hover:bg-slate-50 px-2 py-0.5 rounded transition">← ${prevStage}</button>` : ''}
+          ${nextStage ? `<button onclick="moveStage('${item.id}','${stage}','${nextStage}')"
+              class="text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-2 py-0.5 rounded transition">${nextStage} →</button>` : ''}
+        </div>
+        <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
+          <button onclick="openHistoryModal('${item.id}','${esc(c.full_name)}')" class="text-xs text-slate-400 hover:text-slate-600">📜 История</button>
+          <button onclick="openCommentsModal('${c.id}','${esc(c.full_name)}')"   class="text-xs text-slate-400 hover:text-slate-600">💬 Комм.</button>
+          <button onclick="openEmailModal('${c.id}','invitation')"               class="text-xs text-slate-400 hover:text-emerald-600">📩</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="flex-shrink-0 w-52">
+      <div class="stage-${stage} text-white text-xs font-bold px-3 py-2 rounded-t-xl flex justify-between items-center">
+        <span>${stage}</span>
+        <span class="bg-white/30 rounded-full px-1.5">${cards.length}</span>
+      </div>
+      <div class="bg-slate-50 border border-t-0 border-slate-200 rounded-b-xl p-2 min-h-[6rem] space-y-2">
+        ${cardHtml || '<p class="text-xs text-slate-400 text-center py-4">Пусто</p>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function moveStage(candidacyId, from, to) {
+  const { error } = await sb.from('candidacies').update({ current_stage: to }).eq('id', candidacyId);
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+  await sb.from('stage_history').insert({
+    candidacy_id: candidacyId,
+    from_stage: from,
+    to_stage: to,
+    changed_by: currentUser.id,
+  });
+  toast(`${from} → ${to}`);
+  loadKanban();
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   ПРИВЯЗКА КАНДИДАТА К ВАКАНСИИ
+   ──────────────────────────────────────────────────────────────────── */
+let _linkAvailable = [];
+
+async function openLinkModal() {
+  // Find candidates not yet in this vacancy
+  const { data: linked } = await sb.from('candidacies').select('candidate_id').eq('vacancy_id', currentVacId);
+  const linkedIds = (linked||[]).map(x => x.candidate_id);
+  _linkAvailable = allCandidates.filter(c => !linkedIds.includes(c.id));
+  document.getElementById('link-search').value = '';
+  renderLinkList(_linkAvailable);
+  openModal('modal-link');
+}
+
+function renderLinkList(list) {
+  const el = document.getElementById('link-list');
+  if (!list.length) {
+    el.innerHTML = '<p class="text-slate-400 text-center py-6 text-xs">Нет доступных кандидатов</p>';
+    return;
+  }
+  el.innerHTML = list.map(c => `
+    <button onclick="linkCandidate('${c.id}')"
+      class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition">
+      <div class="font-semibold text-slate-800">${esc(c.full_name)}</div>
+      <div class="text-xs text-slate-400">${esc(c.email||'')} · ${(c.skills||[]).slice(0,3).join(', ')}</div>
+    </button>`).join('');
+}
+
+function filterLinkList() {
+  const q = document.getElementById('link-search').value.toLowerCase();
+  renderLinkList(_linkAvailable.filter(c =>
+    c.full_name.toLowerCase().includes(q) ||
+    (c.skills||[]).join(' ').toLowerCase().includes(q)));
+}
+
+async function linkCandidate(candidateId) {
+  const { error } = await sb.from('candidacies').insert({
+    candidate_id: candidateId,
+    vacancy_id:   currentVacId,
+    current_stage: 'Новый',
+  });
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+
+  // Log initial stage
+  const { data: ccy } = await sb.from('candidacies')
+    .select('id').eq('candidate_id', candidateId).eq('vacancy_id', currentVacId).single();
+  if (ccy) {
+    await sb.from('stage_history').insert({
+      candidacy_id: ccy.id, from_stage: null, to_stage: 'Новый', changed_by: currentUser.id
+    });
+  }
+  toast('Кандидат привязан ✓');
+  closeModal('modal-link');
+  loadKanban();
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   ИСТОРИЯ ЭТАПОВ
+   ──────────────────────────────────────────────────────────────────── */
+async function openHistoryModal(candidacyId, candidateName) {
+  const { data, error } = await sb.from('stage_history')
+    .select('*').eq('candidacy_id', candidacyId)
+    .order('changed_at', { ascending: true });
+  const body = document.getElementById('history-body');
+  if (error || !data?.length) {
+    body.innerHTML = '<p class="text-slate-400 text-center py-6">История пуста</p>';
+  } else {
+    body.innerHTML = `
+      <p class="font-semibold text-slate-700 mb-4">${esc(candidateName)}</p>
+      <div class="space-y-2">
+        ${data.map(h => `<div class="flex items-center gap-2 py-2 border-b border-slate-100 text-sm">
+          <span class="text-slate-400 text-xs w-36 flex-shrink-0">${fmtDate(h.changed_at)}</span>
+          <span class="text-slate-500">${h.from_stage ? esc(h.from_stage) : '—'}</span>
+          <span class="text-slate-300">→</span>
+          <span class="font-semibold text-indigo-600">${esc(h.to_stage)}</span>
+        </div>`).join('')}
+      </div>`;
+  }
+  openModal('modal-history');
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   КОММЕНТАРИИ
+   ──────────────────────────────────────────────────────────────────── */
+async function openCommentsModal(candidateId, candidateName) {
+  document.getElementById('comment-cand-id').value = candidateId;
+  document.getElementById('comments-candidate-name').textContent = '💬 ' + (candidateName || 'Кандидат');
+  document.getElementById('comment-text').value = '';
+  await loadComments(candidateId);
+  openModal('modal-comments');
+}
+
+async function loadComments(candidateId) {
+  const { data, error } = await sb.from('comments')
+    .select('*, profiles(full_name)')
+    .eq('candidate_id', candidateId)
+    .order('created_at', { ascending: false });
+  const el = document.getElementById('comments-list');
+  if (error || !data?.length) {
+    el.innerHTML = '<p class="text-slate-400 text-center py-6 text-sm">Нет комментариев</p>';
+    return;
+  }
+  el.innerHTML = data.map(c => `
+    <div class="bg-slate-50 rounded-xl p-3">
+      <div class="flex justify-between text-xs text-slate-400 mb-1">
+        <span class="font-semibold text-slate-600">${esc(c.profiles?.full_name || 'Рекрутер')}</span>
+        <span>${fmtDate(c.created_at)}</span>
+      </div>
+      <p class="text-slate-700 text-sm">${esc(c.content)}</p>
+    </div>`).join('');
+}
+
+async function addComment(e) {
+  e.preventDefault();
+  const candidateId = document.getElementById('comment-cand-id').value;
+  const content = document.getElementById('comment-text').value.trim();
+  if (!content) return;
+  const { error } = await sb.from('comments').insert({
+    candidate_id: candidateId, author_id: currentUser.id, content
+  });
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+  document.getElementById('comment-text').value = '';
+  loadComments(candidateId);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   НАПОМИНАНИЯ
+   ──────────────────────────────────────────────────────────────────── */
+async function loadReminders() {
+  const { data, error } = await sb.from('reminders')
+    .select('*, candidates(full_name)')
+    .eq('recruiter_id', currentUser.id)
+    .order('created_at', { ascending: true });
+  if (error) { toast('Ошибка загрузки', 'err'); return; }
+  allRemindersCache = data || [];
+  reRenderReminders();
+  updateReminderBadge(allRemindersCache);
+}
+
+function setReminderSort(dir) {
+  reminderSortDir = dir;
+  document.querySelectorAll('.rem-sort-btn').forEach(b => b.classList.remove('active'));
+  const map = { asc: 'rem-sort-asc', desc: 'rem-sort-desc', none: 'rem-sort-none' };
+  document.getElementById(map[dir])?.classList.add('active');
+  reRenderReminders();
+}
+
+function reRenderReminders() {
+  const hideDone = document.getElementById('rem-hide-done')?.checked;
+  let list = hideDone ? allRemindersCache.filter(r => !r.is_done) : [...allRemindersCache];
+
+  if (reminderSortDir !== 'none') {
+    const asc = reminderSortDir === 'asc';
+    list.sort((a, b) => {
+      const da = a.due_date ? new Date(a.due_date) : (asc ? new Date('9999-12-31') : new Date(0));
+      const db = b.due_date ? new Date(b.due_date) : (asc ? new Date('9999-12-31') : new Date(0));
+      return asc ? da - db : db - da;
+    });
+  }
+  renderReminders(list);
+}
+
+function updateReminderBadge(data) {
+  const active = data.filter(r => !r.is_done).length;
+  // Desktop sidebar badge
+  const badge = document.getElementById('badge-reminders');
+  badge.textContent = active;
+  badge.classList.toggle('hidden', active === 0);
+  // Mobile bottom nav badge
+  const mobBadge = document.getElementById('mob-badge-reminders');
+  if (mobBadge) {
+    mobBadge.textContent = active > 9 ? '9+' : active;
+    mobBadge.classList.toggle('visible', active > 0);
+  }
+}
+
+function renderReminders(list) {
+  const el = document.getElementById('reminders-list');
+  if (!list.length) {
+    el.innerHTML = '<div class="card p-10 text-center text-slate-400">Нет напоминаний</div>';
+    return;
+  }
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const renderItem = r => {
+    const overdue = !r.is_done && r.due_date && new Date(r.due_date) < today;
+    const timeStr = r.due_date ? fmtDay(r.due_date) : '—';
+    return `<div class="card p-4 flex items-center gap-4 ${r.is_done ? 'opacity-55' : ''}">
+      <button onclick="toggleReminder('${r.id}',${r.is_done})"
+        class="flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition
+               ${r.is_done ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 hover:border-indigo-400'}">
+        ${r.is_done ? '✓' : ''}
+      </button>
+      <div class="flex-1 min-w-0">
+        <p class="text-slate-800 ${r.is_done ? 'line-through text-slate-400' : ''}">${esc(r.note)}</p>
+        ${r.candidates ? `<p class="text-xs text-slate-500 mt-0.5">👤 ${esc(r.candidates.full_name)}</p>` : ''}
+      </div>
+      <div class="text-sm whitespace-nowrap ${overdue ? 'text-red-500 font-semibold' : 'text-slate-400'}">
+        ${timeStr} ${overdue ? '⚠️' : ''}
+      </div>
+      <button onclick="deleteReminder('${r.id}')" class="text-slate-300 hover:text-red-400 transition text-lg leading-none">×</button>
+    </div>`;
+  };
+
+  // Если сортировка по дате — не разбиваем на группы (порядок важен)
+  if (reminderSortDir !== 'none') {
+    el.innerHTML = list.map(renderItem).join('');
+  } else {
+    // По дате добавления — классическое разделение active / done
+    const active = list.filter(r => !r.is_done);
+    const done   = list.filter(r =>  r.is_done);
+    el.innerHTML = '';
+    if (active.length) el.innerHTML += `<h4 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Активные</h4>` + active.map(renderItem).join('');
+    if (done.length)   el.innerHTML += `<h4 class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-4 mb-2">Выполненные</h4>` + done.map(renderItem).join('');
+  }
+}
+
+function openReminderModal(candidateId = null) {
+  document.getElementById('rem-cand-id').value = candidateId || '';
+  document.getElementById('rem-note').value = '';
+  document.getElementById('rem-date').value = '';
+  openModal('modal-reminder');
+}
+
+async function saveReminder(e) {
+  e.preventDefault();
+  const { error } = await sb.from('reminders').insert({
+    recruiter_id: currentUser.id,
+    candidate_id: document.getElementById('rem-cand-id').value || null,
+    note:     document.getElementById('rem-note').value.trim(),
+    due_date: document.getElementById('rem-date').value || null,
+    is_done:  false,
+  });
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+  toast('Напоминание создано ✓');
+  closeModal('modal-reminder');
+  loadReminders();
+}
+
+async function toggleReminder(id, isDone) {
+  const { error } = await sb.from('reminders').update({ is_done: !isDone }).eq('id', id);
+  if (error) { toast('Ошибка', 'err'); return; }
+  loadReminders();
+}
+
+async function deleteReminder(id) {
+  const { error } = await sb.from('reminders').delete().eq('id', id);
+  if (error) { toast('Ошибка', 'err'); return; }
+  loadReminders();
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   EMAIL  (EmailJS)
+   ──────────────────────────────────────────────────────────────────── */
+function openEmailModal(candidateId, type) {
+  const c = allCandidates.find(x => x.id === candidateId);
+  if (!c) { toast('Кандидат не найден', 'err'); return; }
+  if (!c.email) { toast('У кандидата не указан email', 'err'); return; }
+
+  const labels = { invitation: '📩 Приглашение на собеседование', offer: '🎉 Оффер', rejection: '❌ Отказ' };
+  const descs  = {
+    invitation: `Отправить ${c.full_name} (${c.email}) приглашение на собеседование?`,
+    offer:      `Отправить ${c.full_name} (${c.email}) предложение о работе (оффер)?`,
+    rejection:  `Отправить ${c.full_name} (${c.email}) уведомление об отказе?`,
+  };
+  document.getElementById('email-modal-title').textContent = labels[type];
+  document.getElementById('email-modal-desc').textContent  = descs[type];
+  pendingEmail = { candidate: c, type };
+  openModal('modal-email');
+}
+
+async function confirmSendEmail() {
+  if (!pendingEmail) return;
+  const { candidate: c, type } = pendingEmail;
+  const templates = {
+    invitation: EMAILJS_TMPL_INVITATION,
+    offer:      EMAILJS_TMPL_OFFER,
+    rejection:  EMAILJS_TMPL_REJECTION,
+  };
+  const params = {
+    to_name:       c.full_name,
+    to_email:      c.email,
+    recruiter_name: currentProfile?.full_name || currentUser.email,
+    vacancy_name:  currentVacTitle || 'Открытая вакансия',
+  };
+  try {
+    await emailjs.send(EMAILJS_SERVICE_ID, templates[type], params);
+    toast('Письмо отправлено ✓');
+    closeModal('modal-email');
+  } catch (err) {
+    toast('Ошибка EmailJS: ' + (err.text || err.message || JSON.stringify(err)), 'err');
+  }
+  pendingEmail = null;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   ДАШБОРД
+   ──────────────────────────────────────────────────────────────────── */
+async function loadDashboard() {
+  if (!currentUser) return;
+
+  // My vacancy IDs (needed for candidacies/history)
+  const { data: myVacs } = await sb.from('vacancies').select('id').eq('recruiter_id', currentUser.id);
+  const vacIds = (myVacs || []).map(v => v.id);
+
+  // Parallel requests
+  const [
+    { data: cands  },
+    { data: allVacs },
+    { data: rems  },
+    { data: ccies },
+    { data: hist  },
+  ] = await Promise.all([
+    sb.from('candidates').select('id',       { count: 'exact' }).eq('recruiter_id', currentUser.id),
+    sb.from('vacancies').select('id, status').eq('recruiter_id', currentUser.id),
+    sb.from('reminders').select('id').eq('recruiter_id', currentUser.id).eq('is_done', false),
+    vacIds.length
+      ? sb.from('candidacies').select('current_stage').in('vacancy_id', vacIds)
+      : Promise.resolve({ data: [] }),
+    vacIds.length
+      ? sb.from('stage_history')
+          .select('candidacy_id, from_stage, to_stage, changed_at')
+          .order('changed_at', { ascending: true })
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  // Stats
+  document.getElementById('stat-candidates').textContent  = cands?.length ?? '—';
+  document.getElementById('stat-vac-open').textContent    = (allVacs||[]).filter(v => v.status==='open').length;
+  document.getElementById('stat-vac-closed').textContent  = (allVacs||[]).filter(v => v.status!=='open').length;
+  document.getElementById('stat-reminders') && (document.getElementById('stat-reminders').textContent = rems?.length ?? '—');
+
+  updateReminderBadge(rems || []);
+
+  // Stage counts
+  const stageCounts = Object.fromEntries(STAGES.map(s => [s, 0]));
+  (ccies||[]).forEach(x => { if (x.current_stage in stageCounts) stageCounts[x.current_stage]++; });
+  drawStagesChart(stageCounts);
+
+  // Avg interview days
+  const avg = calcAvgInterviewDays(hist || []);
+  document.getElementById('stat-avg-interview').textContent = avg != null ? avg.toFixed(1) : '—';
+
+  // Dash reminders
+  const { data: dashRems } = await sb.from('reminders')
+    .select('*, candidates(full_name)')
+    .eq('recruiter_id', currentUser.id).eq('is_done', false)
+    .order('due_date', { ascending: true, nullsFirst: false })
+    .limit(6);
+  renderDashReminders(dashRems || []);
+}
+
+function drawStagesChart(counts) {
+  const ctx = document.getElementById('stages-chart').getContext('2d');
+  if (stagesChart) stagesChart.destroy();
+  stagesChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: STAGES,
+      datasets: [{
+        label: 'Кандидаты',
+        data: STAGES.map(s => counts[s] || 0),
+        backgroundColor: ['#3b82f6','#f59e0b','#8b5cf6','#10b981','#ef4444'],
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } }
+    }
+  });
+}
+
+function calcAvgInterviewDays(history) {
+  // Group by candidacy
+  const byCcy = {};
+  history.forEach(h => { (byCcy[h.candidacy_id] ||= []).push(h); });
+  let total = 0, cnt = 0;
+  Object.values(byCcy).forEach(evs => {
+    evs.sort((a,b) => new Date(a.changed_at) - new Date(b.changed_at));
+    let enterAt = null;
+    for (const e of evs) {
+      if (e.to_stage === 'Собеседование') enterAt = new Date(e.changed_at);
+      else if (enterAt && e.from_stage === 'Собеседование') {
+        total += (new Date(e.changed_at) - enterAt) / 86400000;
+        cnt++;
+        enterAt = null;
+      }
+    }
+  });
+  return cnt > 0 ? total / cnt : null;
+}
+
+function renderDashReminders(list) {
+  const el = document.getElementById('dash-reminders');
+  const today = new Date(); today.setHours(0,0,0,0);
+  if (!list.length) {
+    el.innerHTML = '<p class="text-slate-400 text-sm">Нет активных напоминаний</p>';
+    return;
+  }
+  el.innerHTML = list.map(r => {
+    const overdue = r.due_date && new Date(r.due_date) < today;
+    return `<div class="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
+      <div class="flex-1 min-w-0">
+        <p class="text-slate-800 truncate">${esc(r.note)}</p>
+        ${r.candidates ? `<p class="text-xs text-slate-400">👤 ${esc(r.candidates.full_name)}</p>` : ''}
+      </div>
+      <span class="text-xs whitespace-nowrap ${overdue ? 'text-red-500 font-semibold' : 'text-slate-400'}">
+        ${fmtDay(r.due_date)} ${overdue ? '⚠️' : ''}
+      </span>
+    </div>`;
+  }).join('');
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   CSV ИМПОРТ / ЭКСПОРТ
+   ──────────────────────────────────────────────────────────────────── */
+// Маппинг заголовков файла → поля БД (регистронезависимо, лишние пробелы игнорируются)
+const COL_MAP = {
+  'фио':                    'full_name',
+  'full_name':              'full_name',
+  'имя':                    'full_name',
+  'телефон':                'phone',
+  'phone':                  'phone',
+  'р-н проживания':         'district_residence',
+  'район проживания':       'district_residence',
+  'district_residence':     'district_residence',
+  'р-н работы':             'district_work',
+  'район работы':           'district_work',
+  'district_work':          'district_work',
+  'наличие авто':           'has_car',
+  'авто':                   'has_car',
+  'has_car':                'has_car',
+  'должность':              'position',
+  'position':               'position',
+  'источник резюме':        'resume_source',
+  'источник':               'resume_source',
+  'resume_source':          'resume_source',
+  'связь с кандидатом':     'contact_status',
+  'связь':                  'contact_status',
+  'contact_status':         'contact_status',
+  'ссылка на кандидата':    'candidate_link',
+  'candidate_link':         'candidate_link',
+  'ссылка на резюме':       'resume_url',
+  'resume_url':             'resume_url',
+  'опыт':                   'experience',
+  'experience':             'experience',
+  'заметки':                'experience',
+};
+
+function normalizeKey(k) {
+  return String(k).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function mapRow(row) {
+  const result = {};
+  for (const [rawKey, val] of Object.entries(row)) {
+    const field = COL_MAP[normalizeKey(rawKey)];
+    if (field && val != null && String(val).trim() !== '') {
+      result[field] = String(val).trim();
+    }
+  }
+  return result;
+}
+
+async function importRows(rows, filename) {
+  if (!rows.length) { toast('Файл пустой', 'err'); return; }
+  let ok = 0, fail = 0, skipped = 0;
+  for (const row of rows) {
+    const mapped = mapRow(row);
+    if (!mapped.full_name) { skipped++; continue; }
+    const { error } = await sb.from('candidates').insert({
+      recruiter_id: currentUser.id,
+      ...mapped,
+    });
+    error ? fail++ : ok++;
+  }
+  const msg = `«${filename}»: ${ok} добавлено` +
+    (skipped ? `, ${skipped} пропущено (нет ФИО)` : '') +
+    (fail    ? `, ${fail} ошибок` : '');
+  toast(msg, fail > 0 ? 'info' : 'ok');
+  loadCandidates();
+}
+
+async function importFile(event) {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+
+  const isExcel = /\.(xlsx|xls)$/i.test(file.name);
+
+  if (isExcel) {
+    // Excel — SheetJS
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(buf, { type: 'array' });
+    const ws  = wb.Sheets[wb.SheetNames[0]];          // первый лист
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    await importRows(rows, file.name);
+  } else {
+    // CSV — PapaParse
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async ({ data }) => { await importRows(data, file.name); },
+      error: () => toast('Ошибка чтения CSV', 'err'),
+    });
+  }
+}
+
+function exportAllCandidatesCSV() {
+  if (!allCandidates.length) { toast('Нет данных', 'info'); return; }
+  const rows = allCandidates.map(c => ({
+    full_name:          c.full_name,
+    phone:              c.phone || '',
+    district_residence: c.district_residence || '',
+    district_work:      c.district_work || '',
+    has_car:            c.has_car || '',
+    position:           c.position || '',
+    resume_source:      c.resume_source || '',
+    contact_status:     c.contact_status || '',
+    candidate_link:     c.candidate_link || '',
+    resume_url:         c.resume_url || '',
+    experience:         c.experience || '',
+  }));
+  downloadCSV(rows, 'candidates_export.csv');
+}
+
+async function exportKanbanCSV() {
+  const { data, error } = await sb.from('candidacies')
+    .select('current_stage, candidates(full_name, email, phone, skills, salary_expectation)')
+    .eq('vacancy_id', currentVacId);
+  if (error || !data?.length) { toast('Нет данных для экспорта', 'info'); return; }
+  const rows = data.map(x => ({
+    full_name:          x.candidates?.full_name || '',
+    email:              x.candidates?.email || '',
+    phone:              x.candidates?.phone || '',
+    skills:             (x.candidates?.skills||[]).join(', '),
+    salary_expectation: x.candidates?.salary_expectation || '',
+    stage:              x.current_stage,
+  }));
+  downloadCSV(rows, `${currentVacTitle}_candidates.csv`);
+}
+
+function downloadCSV(data, filename) {
+  const csv  = Papa.unparse(data);
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV скачан ✓');
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   ADDITIONAL CSS SHORTCUTS (appended dynamically to avoid repetition)
+   ──────────────────────────────────────────────────────────────────── */
+(function injectStyles() {
+  const style = document.createElement('style');
+  style.textContent = `.action-btn { padding: .2rem .35rem; border-radius: .35rem; transition: background .12s; font-size: 1rem; line-height: 1; cursor: pointer; }
+  .action-btn:hover { background: rgba(0,0,0,.05); }`;
+  document.head.appendChild(style);
+})();
+
+/* ──────────────────────────────────────────────────────────────────────
+   ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ
+   ──────────────────────────────────────────────────────────────────── */
+async function init() {
+  // Restore session
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) {
+    currentUser = session.user;
+    await loadProfile();
+    showApp();
+  }
+
+  // Listen for auth state changes (e.g. email confirmation redirect)
+  sb.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_IN' && session?.user && !currentUser) {
+      currentUser = session.user;
+      await loadProfile();
+      showApp();
+    }
+    if (event === 'SIGNED_OUT') {
+      currentUser = currentProfile = null;
+    }
+  });
+}
+
+init();
+
+/* ──────────────────────────────────────────────────────────────────────
+   КАРТОЧКА КАНДИДАТА (DRAWER)
+   ──────────────────────────────────────────────────────────────────── */
+let drawerCandidateId = null;
+
+async function openDrawer(candidateId) {
+  drawerCandidateId = candidateId;
+  const c = allCandidates.find(x => x.id === candidateId);
+  if (!c) return;
+
+  // Show drawer
+  const drawer = document.getElementById('candidate-drawer');
+  drawer.classList.remove('hidden');
+  requestAnimationFrame(() => drawer.classList.add('drawer-open'));
+
+  // Header
+  document.getElementById('drawer-name').textContent     = c.full_name;
+  document.getElementById('drawer-position').textContent = c.position || '';
+  document.getElementById('drawer-pin-btn').textContent  = c.is_pinned ? '⭐' : '☆';
+  document.getElementById('drawer-added').textContent    = c.created_at
+    ? 'Добавлен ' + new Date(c.created_at).toLocaleDateString('ru-RU') : '';
+
+  // Status select
+  const statusSel = document.getElementById('drawer-status');
+  statusSel.innerHTML = [
+    ['active',  'Активный'],
+    ['in_work', 'В работе'],
+    ['archive', 'Архив'],
+  ].map(([v, l]) =>
+    `<option value="${v}" ${(c.status||'active')===v?'selected':''}>${l}</option>`
+  ).join('');
+  const sc = STATUS_BADGE[c.status||'active'];
+  statusSel.className = `text-xs font-semibold px-3 py-1 rounded-full border-0 cursor-pointer ${sc}`;
+
+  // Personal
+  document.getElementById('dr-phone').textContent  = c.phone || '—';
+  document.getElementById('dr-car').textContent    = c.has_car || '—';
+  document.getElementById('dr-res').textContent    = c.district_residence || '—';
+  document.getElementById('dr-work').textContent   = c.district_work || '—';
+
+  // Professional
+  document.getElementById('dr-source').textContent = c.resume_source || '—';
+  document.getElementById('dr-exp').textContent    = c.experience || '—';
+
+  // Links
+  const linksEl = document.getElementById('dr-links');
+  linksEl.innerHTML = '';
+  if (c.candidate_link) linksEl.innerHTML +=
+    `<a href="${esc(c.candidate_link)}" target="_blank"
+      class="flex items-center gap-2 text-indigo-500 hover:underline text-sm">
+      👤 Профиль кандидата
+    </a>`;
+  if (c.resume_url) linksEl.innerHTML +=
+    `<a href="${esc(c.resume_url)}" target="_blank"
+      class="flex items-center gap-2 text-indigo-500 hover:underline text-sm">
+      📎 Резюме
+    </a>`;
+  if (!c.candidate_link && !c.resume_url)
+    linksEl.innerHTML = '<span class="text-slate-400 text-sm">Нет ссылок</span>';
+
+  // Contact
+  document.getElementById('dr-contact').textContent = c.contact_status || 'Не указано';
+
+  // Load reminders + comments
+  await loadDrawerReminders(candidateId);
+  await loadDrawerComments(candidateId);
+
+  // Set today as default date
+  document.getElementById('drawer-rem-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('drawer-rem-note').value = '';
+}
+
+function closeDrawer() {
+  const drawer = document.getElementById('candidate-drawer');
+  drawer.classList.remove('drawer-open');
+  setTimeout(() => drawer.classList.add('hidden'), 300);
+}
+
+// ── Напоминания в drawer ──────────────────────────────────────────
+async function loadDrawerReminders(candidateId) {
+  const { data } = await sb.from('reminders')
+    .select('*')
+    .eq('candidate_id', candidateId)
+    .eq('is_done', false)
+    .order('due_date', { ascending: true });
+
+  const el = document.getElementById('drawer-reminders');
+  if (!data?.length) { el.innerHTML = ''; return; }
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  el.innerHTML = data.map(r => {
+    const overdue = r.due_date && new Date(r.due_date) < today;
+    return `<div class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 text-xs border ${overdue ? 'border-red-200 bg-red-50' : 'border-indigo-100'}">
+      <button onclick="drawerDoneReminder('${r.id}')" class="flex-shrink-0 w-4 h-4 rounded-full border ${overdue ? 'border-red-300' : 'border-indigo-300'} hover:bg-green-100 transition"></button>
+      <span class="flex-1 ${overdue ? 'text-red-700' : 'text-slate-700'}">${esc(r.note)}</span>
+      <span class="${overdue ? 'text-red-500 font-semibold' : 'text-slate-400'}">${fmtDay(r.due_date)}</span>
+    </div>`;
+  }).join('');
+}
+
+async function drawerAddReminder(e) {
+  e.preventDefault();
+  const note    = document.getElementById('drawer-rem-note').value.trim();
+  const date    = document.getElementById('drawer-rem-date').value;
+  const time    = document.getElementById('drawer-rem-time').value;
+  const dueDate = date || null;
+
+  const noteWithTime = time && date ? `${note} (в ${time})` : note;
+
+  const { error } = await sb.from('reminders').insert({
+    recruiter_id: currentUser.id,
+    candidate_id: drawerCandidateId,
+    note: noteWithTime,
+    due_date: dueDate,
+    is_done: false,
+  });
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+  toast('Напоминание добавлено ✓');
+  document.getElementById('drawer-rem-note').value = '';
+  loadDrawerReminders(drawerCandidateId);
+  // Update badge
+  const { data } = await sb.from('reminders').select('id').eq('recruiter_id', currentUser.id).eq('is_done', false);
+  updateReminderBadge(data || []);
+}
+
+async function drawerDoneReminder(id) {
+  await sb.from('reminders').update({ is_done: true }).eq('id', id);
+  loadDrawerReminders(drawerCandidateId);
+}
+
+// ── Комментарии в drawer ──────────────────────────────────────────
+async function loadDrawerComments(candidateId) {
+  const { data } = await sb.from('comments')
+    .select('*, profiles(full_name)')
+    .eq('candidate_id', candidateId)
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  const el = document.getElementById('drawer-comments');
+  if (!data?.length) {
+    el.innerHTML = '<p class="text-slate-400 text-xs">Нет комментариев</p>';
+    return;
+  }
+  el.innerHTML = data.map(c => `
+    <div class="bg-slate-50 rounded-lg px-3 py-2">
+      <div class="flex justify-between text-xs text-slate-400 mb-0.5">
+        <span class="font-semibold text-slate-600">${esc(c.profiles?.full_name || 'Рекрутер')}</span>
+        <span>${fmtDate(c.created_at)}</span>
+      </div>
+      <p class="text-sm text-slate-700">${esc(c.content)}</p>
+    </div>`).join('');
+}
+
+async function drawerAddComment(e) {
+  e.preventDefault();
+  const content = document.getElementById('drawer-comment-text').value.trim();
+  if (!content) return;
+  const { error } = await sb.from('comments').insert({
+    candidate_id: drawerCandidateId,
+    author_id: currentUser.id,
+    content,
+  });
+  if (error) { toast('Ошибка', 'err'); return; }
+  document.getElementById('drawer-comment-text').value = '';
+  loadDrawerComments(drawerCandidateId);
+}
+
+// ── Действия из drawer ────────────────────────────────────────────
+function drawerEdit() {
+  closeDrawer();
+  setTimeout(() => openCandidateModal(drawerCandidateId), 320);
+}
+
+function drawerOpenComments() {
+  const c = allCandidates.find(x => x.id === drawerCandidateId);
+  openCommentsModal(drawerCandidateId, c?.full_name || '');
+}
+
+async function drawerTogglePin() {
+  const c = allCandidates.find(x => x.id === drawerCandidateId);
+  if (!c) return;
+  await togglePin(c.id, c.is_pinned);
+  // Re-open to reflect change
+  await loadCandidates();
+  openDrawer(drawerCandidateId);
+}
+
+async function drawerSetStatus(status) {
+  await setStatus(drawerCandidateId, status);
+  const sc = STATUS_BADGE[status] || 'badge-active';
+  const sel = document.getElementById('drawer-status');
+  sel.className = `text-xs font-semibold px-3 py-1 rounded-full border-0 cursor-pointer ${sc}`;
+}
+
+async function drawerDelete() {
+  const c = allCandidates.find(x => x.id === drawerCandidateId);
+  if (!c || !confirm(`Удалить кандидата «${c.full_name}»?`)) return;
+  const { error } = await sb.from('candidates').delete().eq('id', drawerCandidateId);
+  if (error) { toast('Ошибка', 'err'); return; }
+  toast('Кандидат удалён');
+  closeDrawer();
+  loadCandidates();
+}
+
+// Закрыть по Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeDrawer();
+});
+</script>
+</body>
+</html>
