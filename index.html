@@ -935,6 +935,12 @@ CREATE TRIGGER on_auth_user_created
         <div id="dr-contact" class="text-slate-600 text-sm bg-slate-50 rounded-lg px-3 py-2"></div>
       </div>
 
+      <!-- 📋 История активности -->
+      <div class="mx-5 mt-4">
+        <h3 class="section-title">📋 История активности</h3>
+        <div id="dr-timeline" class="space-y-2 max-h-56 overflow-y-auto"></div>
+      </div>
+
       <!-- 💬 Комментарии -->
       <div class="mx-5 mt-4 mb-4">
         <h3 class="section-title">💬 Комментарии</h3>
@@ -3348,6 +3354,7 @@ async function openDrawer(candidateId) {
 
   // Load reminders + comments
   await loadDrawerReminders(candidateId);
+  loadDrawerTimeline(candidateId);   // не await — грузится параллельно
   await loadDrawerComments(candidateId);
 
   // Set today as default date
@@ -3432,6 +3439,107 @@ async function updateDrawerCandidacyStage(candidacyId, newStage) {
   }
   toast(`Этап → ${STAGE_LABELS[newStage] || newStage} ✓`);
   loadDrawerVacancies(drawerCandidateId);
+}
+
+// ── Таймлайн активности ──────────────────────────────────────────
+async function loadDrawerTimeline(candidateId) {
+  const el = document.getElementById('dr-timeline');
+  if (!el) return;
+  el.innerHTML = '<p class="text-xs text-slate-300 animate-pulse">Загрузка…</p>';
+
+  const c = allCandidates.find(x => x.id === candidateId);
+  const events = [];
+
+  // Событие: кандидат добавлен
+  if (c?.created_at) {
+    events.push({ ts: c.created_at, icon: '👤', color: 'bg-indigo-100',
+      text: 'Кандидат добавлен' });
+  }
+
+  if (!isOnline) {
+    _renderTimeline(el, events);
+    return;
+  }
+
+  // Параллельно грузим три источника
+  const candIds = (c?._candidacies || []).map(cc => cc.id);
+  const [stageRes, commentRes, reminderRes] = await Promise.all([
+    candIds.length
+      ? sb.from('stage_history')
+          .select('from_stage, to_stage, changed_at, candidacy_id, candidacies(vacancies(title))')
+          .in('candidacy_id', candIds)
+          .order('changed_at', { ascending: false })
+          .limit(30)
+      : Promise.resolve({ data: [] }),
+    sb.from('comments')
+      .select('content, created_at, profiles(full_name)')
+      .eq('candidate_id', candidateId)
+      .order('created_at', { ascending: false })
+      .limit(15),
+    sb.from('reminders')
+      .select('note, created_at, due_date, is_done')
+      .eq('candidate_id', candidateId)
+      .order('created_at', { ascending: false })
+      .limit(15),
+  ]);
+
+  // Смена этапа
+  (stageRes.data || []).forEach(e => {
+    const vac  = e.candidacies?.vacancies?.title;
+    const from = STAGE_LABELS[e.from_stage] || e.from_stage || '?';
+    const to   = STAGE_LABELS[e.to_stage]   || e.to_stage   || '?';
+    events.push({
+      ts:    e.changed_at,
+      icon:  '🔄',
+      color: 'bg-purple-100',
+      text:  `${from} → ${to}`,
+      sub:   vac ? `💼 ${vac}` : null,
+    });
+  });
+
+  // Комментарии
+  (commentRes.data || []).forEach(cm => {
+    events.push({
+      ts:    cm.created_at,
+      icon:  '💬',
+      color: 'bg-blue-100',
+      text:  cm.content,
+      sub:   cm.profiles?.full_name || null,
+    });
+  });
+
+  // Напоминания
+  (reminderRes.data || []).forEach(r => {
+    events.push({
+      ts:    r.created_at,
+      icon:  r.is_done ? '✅' : '⏰',
+      color: r.is_done ? 'bg-green-100' : 'bg-yellow-100',
+      text:  r.note,
+      sub:   r.due_date ? `Срок: ${fmtDay(r.due_date)}` : null,
+    });
+  });
+
+  // Сортируем: новое сверху
+  events.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  _renderTimeline(el, events);
+}
+
+function _renderTimeline(el, events) {
+  if (!events.length) {
+    el.innerHTML = '<p class="text-xs text-slate-400">Нет активности</p>';
+    return;
+  }
+  el.innerHTML = events.map(e => `
+    <div class="flex gap-2.5 items-start">
+      <div class="flex-shrink-0 w-6 h-6 rounded-full ${e.color} flex items-center justify-center text-xs leading-none">
+        ${e.icon}
+      </div>
+      <div class="flex-1 min-w-0 pb-2 border-b border-slate-50">
+        <p class="text-xs text-slate-700 leading-snug break-words">${esc(e.text)}</p>
+        ${e.sub ? `<p class="text-xs text-slate-400 mt-0.5">${esc(e.sub)}</p>` : ''}
+        <p class="text-xs text-slate-300 mt-0.5">${fmtDate(e.ts)}</p>
+      </div>
+    </div>`).join('');
 }
 
 // ── Напоминания в drawer ──────────────────────────────────────────
