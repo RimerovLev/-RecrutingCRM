@@ -838,11 +838,15 @@ class TestCmdOverdue:
     async def test_overdue_uses_lt_today(self):
         upd = make_update(user_id=1)
         ctx = make_ctx()
-        chain = make_sb_mock(data=[{"recruiter_id": "rid"}])
-        bot.sb.from_ = MagicMock(return_value=chain)
+        user_chain = make_sb_mock(data=[{"recruiter_id": "rid"}])
+        rem_chain  = make_sb_mock(data=[])   # пусто — нет итерации по полям
+        calls = [0]
+        def side(t):
+            calls[0] += 1
+            return user_chain if calls[0] == 1 else rem_chain
+        bot.sb.from_ = MagicMock(side_effect=side)
         await bot.cmd_overdue(upd, ctx)
-        # lt should have been called with today's date
-        chain.lt.assert_called_once_with("due_date", date.today().isoformat())
+        rem_chain.lt.assert_called_once_with("due_date", date.today().isoformat())
 
     async def test_overdue_shows_reminder_text(self):
         upd = make_update(user_id=1)

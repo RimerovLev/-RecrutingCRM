@@ -444,14 +444,17 @@ class TestGetAllUsers:
 
 class TestVacancies:
     def _create_vacancy(self, rid, title, status="open", days_old=0):
-        updated = (datetime.utcnow() - timedelta(days=days_old)).isoformat()
         res = sb.from_("vacancies").insert({
             "recruiter_id": rid,
             "title": f"{TEST_PREFIX}{title}",
             "status": status,
-            "updated_at": updated,
         }).execute()
-        return res.data[0]
+        vac = res.data[0]
+        # Если нужна старая дата — обновляем отдельным запросом
+        if days_old > 0:
+            old_date = (datetime.utcnow() - timedelta(days=days_old)).isoformat()
+            sb.from_("vacancies").update({"updated_at": old_date}).eq("id", vac["id"]).execute()
+        return vac
 
     def _cleanup_vac(self, rid):
         sb.from_("vacancies").delete().eq("recruiter_id", rid).ilike("title", f"{TEST_PREFIX}%").execute()
