@@ -2399,19 +2399,22 @@ async function importRows(rows, filename) {
     return;
   }
 
-  // Пакетная вставка по 50 записей
-  const BATCH = 50;
+  // Параллельная пакетная вставка по 200 записей
+  const BATCH = 200;
   let ok = 0, fail = 0;
   toast(`Импорт ${records.length} записей…`, 'info');
 
+  const batches = [];
   for (let i = 0; i < records.length; i += BATCH) {
-    const batch = records.slice(i, i + BATCH);
-    const { error } = await sb.from('candidates').insert(batch);
-    if (error) {
-      fail += batch.length;
-    } else {
-      ok += batch.length;
-    }
+    batches.push(records.slice(i, i + BATCH));
+  }
+
+  const results = await Promise.all(
+    batches.map(batch => sb.from('candidates').insert(batch))
+  );
+
+  for (let i = 0; i < results.length; i++) {
+    results[i].error ? fail += batches[i].length : ok += batches[i].length;
   }
 
   const msg = `«${filename}»: ${ok} добавлено` +
