@@ -32,6 +32,17 @@
     /* ── Sidebar active nav ── */
     .nav-btn.active { background: rgba(255,255,255,.18); }
 
+    /* ── Pipeline stages ── */
+    .stage-btn { background: #f8fafc; color: #64748b; border-color: #e2e8f0; }
+    .stage-btn.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+    .stage-btn:hover:not(.active) { background: #eef2ff; border-color: #a5b4fc; }
+
+    /* ── Tags ── */
+    .tag-chip { display:inline-flex; align-items:center; gap:4px; background:#eef2ff; color:#4f46e5; border-radius:999px; padding:2px 10px; font-size:.75rem; font-weight:500; }
+    .tag-chip button { background:none; border:none; cursor:pointer; color:#818cf8; line-height:1; padding:0; font-size:.85rem; }
+    .tag-chip button:hover { color:#ef4444; }
+    .pipeline-badge { display:inline-block; font-size:.65rem; font-weight:600; padding:2px 7px; border-radius:999px; }
+
     /* ── Kanban card transition ── */
     .kanban-card { transition: box-shadow .15s; }
     .kanban-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.12); }
@@ -342,6 +353,24 @@ CREATE TRIGGER on_auth_user_created
   </aside>
 
   <!-- ── Telegram Link Modal ───────────────────────────────────────────── -->
+  <!-- ── Templates Modal ──────────────────────────────────────────────── -->
+  <div id="modal-templates" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b">
+        <h3 class="text-lg font-bold text-slate-800">💬 Шаблоны сообщений</h3>
+        <button onclick="closeModal('modal-templates')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+      </div>
+      <div class="flex-1 overflow-y-auto px-6 py-4 space-y-3" id="templates-list">
+        <p class="text-slate-400 text-sm text-center py-6">Нет шаблонов. Добавь первый ниже.</p>
+      </div>
+      <div class="px-6 py-4 border-t space-y-2">
+        <input id="tmpl-title" type="text" class="input-field" placeholder="Название шаблона" />
+        <textarea id="tmpl-body" rows="3" class="input-field" placeholder="Текст сообщения… Можно использовать {имя}, {должность}"></textarea>
+        <button onclick="saveTemplate()" class="btn-primary w-full py-2">+ Добавить шаблон</button>
+      </div>
+    </div>
+  </div>
+
   <div id="tg-link-modal" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
     <div class="modal-box max-w-sm">
       <div class="flex justify-between items-center mb-4">
@@ -420,6 +449,7 @@ CREATE TRIGGER on_auth_user_created
             <input type="file" accept=".csv,.xls,.xlsx" onchange="importFile(event)" class="hidden" />
           </label>
           <button onclick="exportAllCandidatesCSV()" class="btn-sm btn-secondary">📥 Экспорт CSV</button>
+          <button onclick="openTemplatesModal()" class="btn-sm btn-secondary">💬 Шаблоны</button>
           <button onclick="seedCandidates()" class="btn-sm btn-secondary" title="Добавить 10 тестовых кандидатов">🌱 Тест-данные</button>
           <button onclick="openCandidateModal()" class="btn-sm btn-primary">+ Добавить кандидата</button>
         </div>
@@ -671,10 +701,46 @@ CREATE TRIGGER on_auth_user_created
         <p id="c-resume-hint" class="text-xs text-slate-400 mt-1"></p>
       </div>
 
+      <!-- Этап воронки -->
+      <div>
+        <label class="form-label">Этап воронки</label>
+        <div id="pipeline-stages" class="flex gap-1 flex-wrap">
+          <button type="button" data-stage="new"        onclick="setPipelineStage('new')"        class="stage-btn px-3 py-1.5 rounded-full text-xs font-medium border transition">Новый</button>
+          <button type="button" data-stage="resume"     onclick="setPipelineStage('resume')"     class="stage-btn px-3 py-1.5 rounded-full text-xs font-medium border transition">📄 Резюме</button>
+          <button type="button" data-stage="phone"      onclick="setPipelineStage('phone')"      class="stage-btn px-3 py-1.5 rounded-full text-xs font-medium border transition">📞 Звонок</button>
+          <button type="button" data-stage="interview"  onclick="setPipelineStage('interview')"  class="stage-btn px-3 py-1.5 rounded-full text-xs font-medium border transition">🤝 Собес</button>
+          <button type="button" data-stage="offer"      onclick="setPipelineStage('offer')"      class="stage-btn px-3 py-1.5 rounded-full text-xs font-medium border transition">🎉 Оффер</button>
+          <button type="button" data-stage="rejected"   onclick="setPipelineStage('rejected')"   class="stage-btn px-3 py-1.5 rounded-full text-xs font-medium border transition">❌ Отказ</button>
+        </div>
+        <input type="hidden" id="c-pipeline-stage" value="new" />
+      </div>
+
+      <!-- Теги -->
+      <div>
+        <label class="form-label">Теги</label>
+        <div class="flex gap-2 flex-wrap mb-2" id="tags-selected"></div>
+        <div class="flex gap-2 flex-wrap">
+          <button type="button" onclick="toggleTag('🔥 Срочно')"    class="tag-preset px-2 py-1 rounded-full text-xs border border-slate-300 hover:bg-indigo-50 transition">🔥 Срочно</button>
+          <button type="button" onclick="toggleTag('⭐ Топ')"       class="tag-preset px-2 py-1 rounded-full text-xs border border-slate-300 hover:bg-indigo-50 transition">⭐ Топ</button>
+          <button type="button" onclick="toggleTag('🎓 Стажёр')"    class="tag-preset px-2 py-1 rounded-full text-xs border border-slate-300 hover:bg-indigo-50 transition">🎓 Стажёр</button>
+          <button type="button" onclick="toggleTag('💼 Опыт 3+')"   class="tag-preset px-2 py-1 rounded-full text-xs border border-slate-300 hover:bg-indigo-50 transition">💼 Опыт 3+</button>
+          <button type="button" onclick="toggleTag('🚗 Авто')"      class="tag-preset px-2 py-1 rounded-full text-xs border border-slate-300 hover:bg-indigo-50 transition">🚗 Авто</button>
+          <button type="button" onclick="toggleTag('🌐 Англ.')"     class="tag-preset px-2 py-1 rounded-full text-xs border border-slate-300 hover:bg-indigo-50 transition">🌐 Англ.</button>
+        </div>
+        <input id="c-tags-custom" type="text" class="input-field mt-2" placeholder="Свой тег — введи и нажми Enter" />
+        <input type="hidden" id="c-tags" value="[]" />
+      </div>
+
       <!-- Заметки -->
       <div>
         <label class="form-label">Заметки / Опыт</label>
         <textarea id="c-exp" rows="2" class="input-field" placeholder="Дополнительная информация…"></textarea>
+      </div>
+
+      <!-- История статусов (только при редактировании) -->
+      <div id="status-history-block" class="hidden">
+        <label class="form-label">История изменений</label>
+        <div id="status-history-list" class="space-y-1 max-h-32 overflow-y-auto text-xs text-slate-500"></div>
       </div>
 
       <div class="flex gap-3 pt-2">
@@ -1351,6 +1417,159 @@ async function handleRegister(e) {
   switchAuthTab('login');
 }
 
+// ── Pipeline stages ──────────────────────────────────────────────────────────
+const STAGE_COLORS = {
+  new:       'bg-slate-100 text-slate-500',
+  resume:    'bg-blue-100 text-blue-600',
+  phone:     'bg-yellow-100 text-yellow-700',
+  interview: 'bg-purple-100 text-purple-700',
+  offer:     'bg-green-100 text-green-700',
+  rejected:  'bg-red-100 text-red-500',
+};
+const STAGE_LABELS = {
+  new: 'Новый', resume: '📄 Резюме', phone: '📞 Звонок',
+  interview: '🤝 Собес', offer: '🎉 Оффер', rejected: '❌ Отказ',
+};
+
+function setPipelineStage(stage) {
+  document.getElementById('c-pipeline-stage').value = stage;
+  document.querySelectorAll('.stage-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.stage === stage);
+  });
+}
+
+function renderPipelineBadge(stage) {
+  const cls = STAGE_COLORS[stage] || STAGE_COLORS.new;
+  const lbl = STAGE_LABELS[stage] || 'Новый';
+  return `<span class="pipeline-badge ${cls}">${lbl}</span>`;
+}
+
+// ── Tags ─────────────────────────────────────────────────────────────────────
+let currentTags = [];
+
+function renderTagsSelected() {
+  const el = document.getElementById('tags-selected');
+  el.innerHTML = currentTags.map(t =>
+    `<span class="tag-chip">${esc(t)}<button type="button" onclick="removeTag('${esc(t)}')" title="Удалить">×</button></span>`
+  ).join('');
+}
+
+function toggleTag(tag) {
+  if (currentTags.includes(tag)) {
+    currentTags = currentTags.filter(t => t !== tag);
+  } else {
+    currentTags.push(tag);
+  }
+  document.getElementById('c-tags').value = JSON.stringify(currentTags);
+  renderTagsSelected();
+}
+
+function removeTag(tag) {
+  currentTags = currentTags.filter(t => t !== tag);
+  document.getElementById('c-tags').value = JSON.stringify(currentTags);
+  renderTagsSelected();
+}
+
+function initTagInput() {
+  const inp = document.getElementById('c-tags-custom');
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const val = inp.value.trim();
+      if (val && !currentTags.includes(val)) {
+        currentTags.push(val);
+        document.getElementById('c-tags').value = JSON.stringify(currentTags);
+        renderTagsSelected();
+      }
+      inp.value = '';
+    }
+  });
+}
+
+// ── Message Templates ─────────────────────────────────────────────────────────
+let templatesCache = [];
+
+async function openTemplatesModal() {
+  openModal('modal-templates');
+  await loadTemplates();
+}
+
+async function loadTemplates() {
+  const { data } = await sb.from('message_templates')
+    .select('*').eq('recruiter_id', currentUser.id)
+    .order('created_at', { ascending: false });
+  templatesCache = data || [];
+  renderTemplates();
+}
+
+function renderTemplates() {
+  const el = document.getElementById('templates-list');
+  if (!templatesCache.length) {
+    el.innerHTML = '<p class="text-slate-400 text-sm text-center py-6">Нет шаблонов. Добавь первый ниже.</p>';
+    return;
+  }
+  el.innerHTML = templatesCache.map(t => `
+    <div class="border rounded-xl p-3 space-y-1">
+      <div class="flex items-center justify-between">
+        <span class="font-semibold text-slate-700 text-sm">${esc(t.title)}</span>
+        <div class="flex gap-2">
+          <button onclick="copyTemplate('${t.id}')" class="btn-sm btn-secondary text-xs py-1">📋 Копировать</button>
+          <button onclick="deleteTemplate('${t.id}')" class="text-red-400 hover:text-red-600 text-xs">✕</button>
+        </div>
+      </div>
+      <p class="text-slate-500 text-xs whitespace-pre-wrap">${esc(t.body)}</p>
+    </div>
+  `).join('');
+}
+
+async function saveTemplate() {
+  const title = document.getElementById('tmpl-title').value.trim();
+  const body  = document.getElementById('tmpl-body').value.trim();
+  if (!title || !body) { toast('Заполни название и текст', 'err'); return; }
+  const { error } = await sb.from('message_templates').insert({
+    recruiter_id: currentUser.id, title, body
+  });
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+  document.getElementById('tmpl-title').value = '';
+  document.getElementById('tmpl-body').value  = '';
+  toast('Шаблон добавлен ✓');
+  loadTemplates();
+}
+
+function copyTemplate(id) {
+  const tmpl = templatesCache.find(t => t.id === id);
+  if (!tmpl) return;
+  navigator.clipboard.writeText(tmpl.body).then(() => toast('Скопировано ✓'));
+}
+
+async function deleteTemplate(id) {
+  if (!confirm('Удалить шаблон?')) return;
+  await sb.from('message_templates').delete().eq('id', id);
+  toast('Шаблон удалён');
+  loadTemplates();
+}
+
+// ── Status history ────────────────────────────────────────────────────────────
+async function loadStatusHistory(candidateId) {
+  const { data } = await sb.from('candidate_history')
+    .select('*, profiles(full_name)')
+    .eq('candidate_id', candidateId)
+    .order('changed_at', { ascending: false })
+    .limit(10);
+  if (!data || !data.length) return;
+  const block = document.getElementById('status-history-block');
+  const list  = document.getElementById('status-history-list');
+  block.classList.remove('hidden');
+  list.innerHTML = data.map(h => {
+    const who  = h.profiles?.full_name || 'Рекрутер';
+    const when = new Date(h.changed_at).toLocaleDateString('ru', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+    return `<div class="flex justify-between py-1 border-b border-slate-100 last:border-0">
+      <span>${esc(h.field_name)}: <b>${esc(String(h.old_value||'—'))}</b> → <b>${esc(String(h.new_value||'—'))}</b></span>
+      <span class="text-slate-400 ml-2 shrink-0">${when}</span>
+    </div>`;
+  }).join('');
+}
+
 async function handleLogout() {
   await sb.auth.signOut();
   currentUser = currentProfile = null;
@@ -1532,7 +1751,11 @@ function renderCandidates(list) {
       <td class="px-4 py-3 text-slate-500">${esc(c.district_residence||'—')}</td>
       <td class="px-4 py-3 text-slate-500">${esc(c.district_work||'—')}</td>
       <td class="px-4 py-3">${carBadge}</td>
-      <td class="px-4 py-3 text-slate-700 whitespace-nowrap">${esc(c.position||'—')}</td>
+      <td class="px-4 py-3 text-slate-700 whitespace-nowrap">
+        ${esc(c.position||'—')}
+        ${c.pipeline_stage && c.pipeline_stage !== 'new' ? renderPipelineBadge(c.pipeline_stage) : ''}
+        ${Array.isArray(c.tags) && c.tags.length ? c.tags.map(t => `<span class="tag-chip ml-1">${esc(t)}</span>`).join('') : ''}
+      </td>
       <td class="px-4 py-3 text-slate-500">${esc(c.resume_source||'—')}</td>
       <td class="px-4 py-3 text-slate-500 max-w-[160px]">
         <div class="truncate" title="${esc(c.contact_status)}">${esc(c.contact_status||'—')}</div>
@@ -1640,6 +1863,13 @@ async function openCandidateModal(id = null) {
   document.getElementById('c-resume-hint').textContent = '';
   document.getElementById('cand-id').value = id || '';
   document.getElementById('cand-modal-title').textContent = id ? 'Редактировать кандидата' : 'Добавить кандидата';
+  document.getElementById('status-history-block').classList.add('hidden');
+
+  // Reset pipeline & tags
+  currentTags = [];
+  setPipelineStage('new');
+  renderTagsSelected();
+  initTagInput();
 
   if (id) {
     const c = allCandidates.find(x => x.id === id);
@@ -1656,10 +1886,18 @@ async function openCandidateModal(id = null) {
       document.getElementById('c-link').value          = c.candidate_link || '';
       document.getElementById('c-resume-link').value   = c.resume_url || '';
       document.getElementById('c-exp').value           = c.experience || '';
+      // Pipeline stage
+      setPipelineStage(c.pipeline_stage || 'new');
+      // Tags
+      currentTags = Array.isArray(c.tags) ? [...c.tags] : [];
+      document.getElementById('c-tags').value = JSON.stringify(currentTags);
+      renderTagsSelected();
       if (c.resume_url && c.resume_url.includes('supabase')) {
         document.getElementById('c-resume-hint').textContent =
           'Загружен файл: ' + decodeURIComponent(c.resume_url.split('/').pop().replace(/^\d+_/, ''));
       }
+      // Load status history
+      loadStatusHistory(id);
     }
   }
   openModal('modal-candidate');
@@ -1712,12 +1950,28 @@ async function saveCandidate(e) {
     contact_status:     document.getElementById('c-contact').value.trim() || null,
     candidate_link:     document.getElementById('c-link').value.trim() || null,
     experience:         document.getElementById('c-exp').value.trim() || null,
+    pipeline_stage:     document.getElementById('c-pipeline-stage').value || 'new',
+    tags:               JSON.parse(document.getElementById('c-tags').value || '[]'),
   };
   if (resumeUrl !== undefined) payload.resume_url = resumeUrl;
 
   let error;
   if (id) {
+    // Проверяем изменился ли статус для уведомления
+    const prev = allCandidates.find(c => c.id === id);
     ({ error } = await sb.from('candidates').update(payload).eq('id', id));
+    if (!error && prev && prev.status !== payload.status) {
+      sb.from('bot_notifications').insert({
+        recruiter_id: currentUser.id,
+        type: 'status_changed',
+        payload: {
+          candidate_name: payload.full_name,
+          old_status: prev.status,
+          new_status: payload.status,
+        },
+        sent: false,
+      });
+    }
   } else {
     payload.recruiter_id = currentUser.id;
     ({ error } = await sb.from('candidates').insert(payload));

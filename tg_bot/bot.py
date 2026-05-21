@@ -438,6 +438,113 @@ async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_html(text)
 
 
+# ── Pipeline command ─────────────────────────────────────────────────────────
+async def cmd_pipeline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    rid = await require_user(update)
+    if not rid:
+        return
+
+    vacs = get_open_vacancies(rid)
+    if not vacs:
+        await update.message.reply_text("Нет открытых вакансий.")
+        return
+
+    STAGES = ["new", "resume", "phone", "interview", "offer", "rejected"]
+    STAGE_EMOJI = {"new": "🆕", "resume": "📄", "phone": "📞", "interview": "🤝", "offer": "🎉", "rejected": "❌"}
+    STAGE_NAME  = {"new": "Новые", "resume": "Резюме", "phone": "Звонок",
+                   "interview": "Собес", "offer": "Оффер", "rejected": "Отказ"}
+
+    cands_res = (sb.from_("candidates")
+                   .select("id, full_name, pipeline_stage, status")
+                   .eq("recruiter_id", rid)
+                   .neq("status", "archive")
+                   .execute())
+    cands = cands_res.data or []
+
+    lines = ["📊 <b>Воронка кандидатов</b>\n"]
+    for stage in STAGES:
+        count = sum(1 for c in cands if (c.get("pipeline_stage") or "new") == stage)
+        if count:
+            bar = "█" * min(count, 10) + ("+" if count > 10 else "")
+            lines.append(f"{STAGE_EMOJI[stage]} <b>{STAGE_NAME[stage]}</b>: {count}  {bar}")
+
+    lines.append(f"\n👥 Всего активных: {len(cands)}")
+    await update.message.reply_html("\n".join(lines))
+
+
+# ── Overdue command ───────────────────────────────────────────────────────────
+async def cmd_overdue(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    rid = await require_user(update)
+    if not rid:
+        return
+
+    today = date.today().isoformat()
+    res = (sb.from_("reminders")
+             .select("*, candidates(full_name)")
+             .eq("recruiter_id", rid)
+             .eq("is_done", False)
+             .lt("due_date", today)
+             .order("due_date")
+             .execute())
+    rems = res.data or []
+
+    if not rems:
+        await update.message.reply_text("✅ Просроченных напоминаний нет!")
+        return
+
+    await update.message.reply_html(f"⚠️ <b>Просроченные напоминания</b> ({len(rems)}):")
+    for r in rems[:10]:
+        cand = r.get("candidates")
+        cand_str = f"\n👤 {cand['full_name']}" if cand else ""
+        text = f"⚠️ {r['note']}{cand_str}\n📅 {fmt_date(r.get('due_date'))}"
+        await update.message.reply_text(text, reply_markup=reminder_keyboard(r["id"]))
+
+
+# ── Report command ────────────────────────────────────────────────────────────
+async def cmd_report(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    rid = await require_user(update)
+    if not rid:
+        return
+
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+
+    new_cands = (sb.from_("candidates")
+                   .select("id, full_name, status, pipeline_stage")
+                   .eq("recruiter_id", rid)
+                   .gte("created_at", week_ago)
+                   .execute()).data or []
+
+    done_rems = (sb.from_("reminders")
+                   .select("id")
+                   .eq("recruiter_id", rid)
+                   .eq("is_done", True)
+                   .gte("updated_at", week_ago)
+                   .execute()).data or []
+
+    all_rems = get_all_active_reminders(rid)
+    overdue  = sum(1 for r in all_rems if is_overdue(r.get("due_date")))
+
+    cands_res = (sb.from_("candidates")
+                   .select("status")
+                   .eq("recruiter_id", rid)
+                   .execute()).data or []
+
+    offers = sum(1 for c in new_cands if (c.get("pipeline_stage") or "new") == "offer")
+
+    text = (
+        f"📈 <b>Отчёт за неделю</b>\n\n"
+        f"👥 Новых кандидатов: <b>{len(new_cands)}</b>\n"
+        f"🎉 Дошли до оффера: <b>{offers}</b>\n"
+        f"✅ Задач выполнено: <b>{len(done_rems)}</b>\n"
+        f"⚠️ Просроченных задач: <b>{overdue}</b>\n\n"
+        f"📊 <b>База сейчас:</b>\n"
+        f"  🟢 Активных: {sum(1 for c in cands_res if c['status']=='active')}\n"
+        f"  🔵 В работе: {sum(1 for c in cands_res if c['status']=='in_work')}\n"
+        f"  ⚪ Архив: {sum(1 for c in cands_res if c['status']=='archive')}"
+    )
+    await update.message.reply_html(text)
+
+
 # ── Link command ──────────────────────────────────────────────────────────────
 async def cmd_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
@@ -599,6 +706,51 @@ async def send_morning_digest(context: ContextTypes.DEFAULT_TYPE):
             log.error(f"Digest error for user {tg_id}: {e}")
 
 
+# ── Push notifications ───────────────────────────────────────────────────────
+async def check_notifications(context: ContextTypes.DEFAULT_TYPE):
+    """Проверяет таблицу bot_notifications и рассылает непрочитанные."""
+    try:
+        res = (sb.from_("bot_notifications")
+                 .select("*")
+                 .eq("sent", False)
+                 .order("created_at")
+                 .limit(20)
+                 .execute())
+        notifs = res.data or []
+        if not notifs:
+            return
+
+        for n in notifs:
+            rid = n["recruiter_id"]
+            # Найти telegram_id пользователя
+            tg_res = (sb.from_("telegram_users")
+                        .select("telegram_id")
+                        .eq("recruiter_id", rid)
+                        .execute())
+            if not tg_res.data:
+                sb.from_("bot_notifications").update({"sent": True}).eq("id", n["id"]).execute()
+                continue
+
+            tg_id = tg_res.data[0]["telegram_id"]
+            payload = n.get("payload", {})
+
+            if n["type"] == "status_changed":
+                cand = payload.get("candidate_name", "Кандидат")
+                old  = payload.get("old_status", "")
+                new  = payload.get("new_status", "")
+                msg  = f"🔄 <b>{cand}</b>\nСтатус изменён: {old} → {new}"
+                await context.bot.send_message(chat_id=tg_id, text=msg, parse_mode="HTML")
+            elif n["type"] == "reminder_due":
+                note = payload.get("note", "Напоминание")
+                msg  = f"🔔 Напоминание: <b>{note}</b>"
+                await context.bot.send_message(chat_id=tg_id, text=msg, parse_mode="HTML")
+
+            sb.from_("bot_notifications").update({"sent": True}).eq("id", n["id"]).execute()
+
+    except Exception as e:
+        log.error(f"check_notifications error: {e}")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 async def async_main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -613,6 +765,9 @@ async def async_main():
     app.add_handler(CommandHandler("note",       cmd_note))
     app.add_handler(CommandHandler("stats",      cmd_stats))
     app.add_handler(CommandHandler("link",       cmd_link))
+    app.add_handler(CommandHandler("pipeline",   cmd_pipeline))
+    app.add_handler(CommandHandler("overdue",    cmd_overdue))
+    app.add_handler(CommandHandler("report",     cmd_report))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
@@ -627,10 +782,16 @@ async def async_main():
             BotCommand("note",       "Добавить напоминание"),
             BotCommand("stats",      "Статистика"),
             BotCommand("link",       "Привязать аккаунт CRM"),
+            BotCommand("pipeline",   "Воронка кандидатов"),
+            BotCommand("overdue",    "Просроченные напоминания"),
+            BotCommand("report",     "Отчёт за неделю"),
         ])
         application.job_queue.run_daily(
             send_morning_digest,
             time=dtime(hour=DIGEST_HOUR, minute=DIGEST_MIN, tzinfo=TZ),
+        )
+        application.job_queue.run_repeating(
+            check_notifications, interval=120, first=10
         )
         log.info(f"Morning digest scheduled at {DIGEST_HOUR}:{DIGEST_MIN:02d} {TIMEZONE}")
 
