@@ -773,19 +773,19 @@ async def async_main():
 
     async def post_init(application: Application):
         await application.bot.set_my_commands([
-            BotCommand("today",      "Напоминания на сегодня"),
-            BotCommand("reminders",  "Все активные напоминания"),
-            BotCommand("candidates", "Последние кандидаты"),
-            BotCommand("search",     "Найти кандидата"),
-            BotCommand("vac",        "Открытые вакансии"),
-            BotCommand("add",        "Добавить кандидата"),
-            BotCommand("note",       "Добавить напоминание"),
-            BotCommand("stats",      "Статистика"),
-            BotCommand("link",       "Привязать аккаунт CRM"),
-            BotCommand("pipeline",   "Воронка кандидатов"),
-            BotCommand("overdue",    "Просроченные напоминания"),
-            BotCommand("report",     "Отчёт за неделю"),
-        ])
+    BotCommand("today",      "Напоминания на сегодня"),
+    BotCommand("reminders",  "Все активные напоминания"),
+    BotCommand("candidates", "Последние 10 кандидатов"),
+    BotCommand("search",     "Найти кандидата"),
+    BotCommand("vac",        "Открытые вакансии"),
+    BotCommand("add",        "Добавить кандидата"),
+    BotCommand("note",       "Добавить напоминание"),
+    BotCommand("stats",      "Статистика по базе"),
+    BotCommand("pipeline",   "Кандидаты по этапам воронки"),
+    BotCommand("overdue",    "Просроченные напоминания"),
+    BotCommand("report",     "Отчёт за неделю"),
+    BotCommand("link",       "Привязать аккаунт CRM"),
+])
         application.job_queue.run_daily(
             send_morning_digest,
             time=dtime(hour=DIGEST_HOUR, minute=DIGEST_MIN, tzinfo=TZ),
