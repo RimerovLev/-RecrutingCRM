@@ -44,8 +44,11 @@
     .pipeline-badge { display:inline-block; font-size:.65rem; font-weight:600; padding:2px 7px; border-radius:999px; }
 
     /* ── Kanban card transition ── */
-    .kanban-card { transition: box-shadow .15s; }
+    .kanban-card { transition: box-shadow .15s, opacity .15s; cursor: grab; }
     .kanban-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+    .kanban-card:active { cursor: grabbing; }
+    .kanban-drop-zone { transition: background .15s, outline .15s; }
+    .kanban-drop-zone.drag-over { background: #e0e7ff; outline: 2px dashed #6366f1; outline-offset: -2px; }
 
     /* ── Textarea resize ── */
     textarea { resize: vertical; }
@@ -2555,7 +2558,11 @@ function renderKanban(items) {
 
     const cardHtml = cards.map(item => {
       const c = item.candidates || {};
-      return `<div class="kanban-card rounded-xl border p-3 stage-border-${stage}">
+      return `<div class="kanban-card rounded-xl border p-3 stage-border-${stage}"
+          draggable="true"
+          data-candidacy-id="${item.id}"
+          data-stage="${stage}"
+          ondragstart="kanbanDragStart(event)">
         <div class="font-semibold text-slate-800 leading-tight mb-1">${esc(c.full_name)}</div>
         ${c.email  ? `<div class="text-xs text-slate-500 truncate">${esc(c.email)}</div>` : ''}
         ${c.salary_expectation ? `<div class="text-xs text-slate-400">${money(c.salary_expectation)}</div>` : ''}
@@ -2579,11 +2586,64 @@ function renderKanban(items) {
         <span>${stageLabel}</span>
         <span class="bg-white/30 rounded-full px-1.5">${cards.length}</span>
       </div>
-      <div class="bg-slate-50 border border-t-0 border-slate-200 rounded-b-xl p-2 min-h-[6rem] space-y-2">
-        ${cardHtml || '<p class="text-xs text-slate-400 text-center py-4">Пусто</p>'}
+      <div class="kanban-drop-zone bg-slate-50 border border-t-0 border-slate-200 rounded-b-xl p-2 min-h-[6rem] space-y-2"
+          data-stage="${stage}"
+          ondragover="kanbanDragOver(event)"
+          ondragenter="kanbanDragEnter(event)"
+          ondragleave="kanbanDragLeave(event)"
+          ondrop="kanbanDrop(event)">
+        ${cardHtml || '<p class="text-xs text-slate-400 text-center py-4 kanban-empty-hint">Пусто</p>'}
       </div>
     </div>`;
   }).join('');
+}
+
+/* ── Kanban drag-and-drop handlers ── */
+let _dragCandidacyId = null;
+let _dragFromStage   = null;
+
+function kanbanDragStart(event) {
+  const card = event.currentTarget;
+  _dragCandidacyId = card.dataset.candidacyId;
+  _dragFromStage   = card.dataset.stage;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', _dragCandidacyId);
+  card.classList.add('opacity-50');
+  setTimeout(() => card.classList.add('opacity-50'), 0);
+}
+
+function kanbanDragOver(event) {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+}
+
+function kanbanDragEnter(event) {
+  event.preventDefault();
+  const zone = event.currentTarget;
+  if (zone.dataset.stage !== _dragFromStage) {
+    zone.classList.add('drag-over');
+  }
+}
+
+function kanbanDragLeave(event) {
+  const zone = event.currentTarget;
+  // Only remove highlight when truly leaving the zone (not entering a child)
+  if (!zone.contains(event.relatedTarget)) {
+    zone.classList.remove('drag-over');
+  }
+}
+
+async function kanbanDrop(event) {
+  event.preventDefault();
+  const zone = event.currentTarget;
+  zone.classList.remove('drag-over');
+
+  const toStage = zone.dataset.stage;
+  if (!toStage || toStage === _dragFromStage || !_dragCandidacyId) return;
+
+  await moveStage(_dragCandidacyId, _dragFromStage, toStage);
+  _dragCandidacyId = null;
+  _dragFromStage   = null;
 }
 
 async function moveStage(candidacyId, from, to) {
