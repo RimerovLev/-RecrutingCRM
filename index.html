@@ -2384,16 +2384,36 @@ function mapRow(row) {
 
 async function importRows(rows, filename) {
   if (!rows.length) { toast('Файл пустой', 'err'); return; }
-  let ok = 0, fail = 0, skipped = 0;
+
+  // Маппим и фильтруем
+  let skipped = 0;
+  const records = [];
   for (const row of rows) {
     const mapped = mapRow(row);
     if (!mapped.full_name) { skipped++; continue; }
-    const { error } = await sb.from('candidates').insert({
-      recruiter_id: currentUser.id,
-      ...mapped,
-    });
-    error ? fail++ : ok++;
+    records.push({ recruiter_id: currentUser.id, ...mapped });
   }
+
+  if (!records.length) {
+    toast('Нет строк с ФИО', 'err');
+    return;
+  }
+
+  // Пакетная вставка по 50 записей
+  const BATCH = 50;
+  let ok = 0, fail = 0;
+  toast(`Импорт ${records.length} записей…`, 'info');
+
+  for (let i = 0; i < records.length; i += BATCH) {
+    const batch = records.slice(i, i + BATCH);
+    const { error } = await sb.from('candidates').insert(batch);
+    if (error) {
+      fail += batch.length;
+    } else {
+      ok += batch.length;
+    }
+  }
+
   const msg = `«${filename}»: ${ok} добавлено` +
     (skipped ? `, ${skipped} пропущено (нет ФИО)` : '') +
     (fail    ? `, ${fail} ошибок` : '');
