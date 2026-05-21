@@ -883,9 +883,13 @@ CREATE TRIGGER on_auth_user_created
         <div class="drawer-grid">
           <div class="drawer-label">Источник</div>
           <div id="dr-source" class="drawer-val"></div>
+          <div class="drawer-label">Этап воронки</div>
+          <div id="dr-pipeline" class="drawer-val"></div>
           <div class="drawer-label">Опыт / заметки</div>
           <div id="dr-exp" class="drawer-val col-span-1 whitespace-pre-wrap"></div>
         </div>
+        <!-- Теги -->
+        <div id="dr-tags" class="flex gap-1.5 flex-wrap mt-2"></div>
       </div>
 
       <!-- 🔗 Ссылки -->
@@ -2921,6 +2925,20 @@ async function openDrawer(candidateId) {
   // Professional
   document.getElementById('dr-source').textContent = c.resume_source || '—';
   document.getElementById('dr-exp').textContent    = c.experience || '—';
+
+  // Pipeline stage
+  const STAGE_LABELS = { new:'🆕 Новый', resume:'📄 Резюме', phone:'📞 Звонок', interview:'🤝 Собес', offer:'🎉 Оффер', rejected:'❌ Отказ' };
+  const STAGE_COLORS = { new:'bg-slate-100 text-slate-600', resume:'bg-blue-100 text-blue-700', phone:'bg-yellow-100 text-yellow-700', interview:'bg-indigo-100 text-indigo-700', offer:'bg-green-100 text-green-700', rejected:'bg-red-100 text-red-600' };
+  const stage = c.pipeline_stage || 'new';
+  const stageEl = document.getElementById('dr-pipeline');
+  stageEl.innerHTML = `<span class="inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${STAGE_COLORS[stage]||'bg-slate-100 text-slate-600'}">${STAGE_LABELS[stage]||stage}</span>`;
+
+  // Tags
+  const tagsEl = document.getElementById('dr-tags');
+  const tags = Array.isArray(c.tags) ? c.tags : [];
+  tagsEl.innerHTML = tags.length
+    ? tags.map(t => `<span class="tag-chip">${esc(t)}</span>`).join('')
+    : '';
 
   // Links
   const linksEl = document.getElementById('dr-links');
