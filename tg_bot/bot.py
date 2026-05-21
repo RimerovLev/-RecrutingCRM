@@ -257,8 +257,11 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/add &lt;ФИО&gt; [телефон] — добавить кандидата\n"
         "/note &lt;заметка&gt; — добавить напоминание\n"
         "/note &lt;имя&gt; | &lt;заметка&gt; — привязать к кандидату\n"
-        "/link &lt;код&gt; — привязать аккаунт CRM\n"
-        "/stats — статистика по базе"
+        "/stats — статистика по базе\n"
+        "/pipeline — кандидаты по этапам воронки\n"
+        "/overdue — просроченные напоминания\n"
+        "/report — отчёт за неделю\n"
+        "/link &lt;код&gt; — привязать аккаунт CRM"
     )
     await update.message.reply_html(text)
 
