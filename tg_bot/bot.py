@@ -472,15 +472,19 @@ async def cmd_pipeline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     vac_stages: dict = defaultdict(lambda: defaultdict(list))
     for r in rows:
         vid   = r["vacancy_id"]
-        stage = r.get("current_stage") or "Новый"
+        stage = r.get("current_stage") or "new"
         name  = (r.get("candidates") or {}).get("full_name", "—")
         vac_stages[vid][stage].append(name)
 
-    # Порядок этапов канбана
-    STAGE_ORDER = ["Новый", "Резюме", "Звонок", "Собеседование", "Оффер", "Отказ"]
+    # Порядок этапов — единые английские ключи (как в CRM)
+    STAGE_ORDER = ["new", "resume", "phone", "interview", "offer", "rejected"]
     STAGE_EMOJI = {
-        "Новый": "🆕", "Резюме": "📄", "Звонок": "📞",
-        "Собеседование": "🤝", "Оффер": "🎉", "Отказ": "❌",
+        "new": "🆕", "resume": "📄", "phone": "📞",
+        "interview": "🤝", "offer": "🎉", "rejected": "❌",
+    }
+    STAGE_LABEL = {
+        "new": "Новый", "resume": "Резюме", "phone": "Звонок",
+        "interview": "Собеседование", "offer": "Оффер", "rejected": "Отказ",
     }
 
     lines = ["📊 <b>Воронка по вакансиям</b>\n"]
@@ -500,13 +504,15 @@ async def cmd_pipeline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             if stage in stages:
                 shown.add(stage)
                 emoji = STAGE_EMOJI.get(stage, "•")
+                label = STAGE_LABEL.get(stage, stage)
                 count = len(stages[stage])
                 bar   = "█" * min(count, 8) + ("+" if count > 8 else "")
-                lines.append(f"  {emoji} {stage}: {count}  {bar}")
+                lines.append(f"  {emoji} {label}: {count}  {bar}")
         for stage, names in stages.items():
             if stage not in shown:
                 count = len(names)
-                lines.append(f"  • {stage}: {count}")
+                label = STAGE_LABEL.get(stage, stage)
+                lines.append(f"  • {label}: {count}")
         lines.append("")
 
     lines.append(f"👥 Итого в воронке: {total}")
