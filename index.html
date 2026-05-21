@@ -2272,19 +2272,31 @@ function renderLinkList(list) {
     el.innerHTML = '<p class="text-slate-400 text-center py-6 text-xs">Нет доступных кандидатов</p>';
     return;
   }
-  el.innerHTML = list.map(c => `
+  el.innerHTML = list.map(c => {
+    const position = c.position ? `<span class="text-indigo-600 font-medium">${esc(c.position)}</span>` : '';
+    const phone    = c.phone    ? `<span>${esc(c.phone)}</span>` : '';
+    const status   = c.status === 'in_work' ? '🔵' : c.status === 'archive' ? '⚪' : '🟢';
+    const meta     = [position, phone].filter(Boolean).join(' · ');
+    return `
     <button onclick="linkCandidate('${c.id}')"
       class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition">
-      <div class="font-semibold text-slate-800">${esc(c.full_name)}</div>
-      <div class="text-xs text-slate-400">${esc(c.email||'')} · ${(c.skills||[]).slice(0,3).join(', ')}</div>
-    </button>`).join('');
+      <div class="flex items-center gap-2">
+        <span>${status}</span>
+        <span class="font-semibold text-slate-800">${esc(c.full_name)}</span>
+      </div>
+      ${meta ? `<div class="text-xs text-slate-500 mt-0.5 ml-5">${meta}</div>` : ''}
+    </button>`;
+  }).join('');
 }
 
 function filterLinkList() {
   const q = document.getElementById('link-search').value.toLowerCase();
   renderLinkList(_linkAvailable.filter(c =>
     c.full_name.toLowerCase().includes(q) ||
-    (c.skills||[]).join(' ').toLowerCase().includes(q)));
+    (c.position || '').toLowerCase().includes(q) ||
+    (c.phone    || '').toLowerCase().includes(q) ||
+    (c.skills   || []).join(' ').toLowerCase().includes(q)
+  ));
 }
 
 async function linkCandidate(candidateId) {
