@@ -489,6 +489,12 @@ CREATE TRIGGER on_auth_user_created
             <label class="form-label">Добавлен от</label>
             <input id="filter-date" type="date" onchange="filterCandidates()" class="input-field" />
           </div>
+          <div>
+            <label class="form-label">Вакансия</label>
+            <select id="filter-vacancy" onchange="filterCandidates()" class="input-field">
+              <option value="">Все</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -674,6 +680,14 @@ CREATE TRIGGER on_auth_user_created
           <label class="form-label">Источник резюме</label>
           <input id="c-source" type="text" class="input-field" placeholder="hh.ru, Авито, Реферал…" />
         </div>
+      </div>
+
+      <!-- Привязка к вакансии -->
+      <div>
+        <label class="form-label">Вакансия <span class="text-slate-400 font-normal">— необязательно</span></label>
+        <select id="c-vacancy" class="input-field">
+          <option value="">— Без вакансии —</option>
+        </select>
       </div>
 
       <!-- Связь с кандидатом -->
@@ -1699,7 +1713,42 @@ async function loadCandidates() {
     .order('created_at', { ascending: false });
   if (error) { toast('Ошибка загрузки кандидатов', 'err'); return; }
   allCandidates = data || [];
+
+  // Загружаем связки кандидат → вакансия
+  const { data: candLinks } = await sb.from('candidacies')
+    .select('candidate_id, vacancy_id, vacancies(id, title)')
+    .in('candidate_id', allCandidates.map(c => c.id));
+
+  // Вешаем на каждого кандидата список vacancy_id для фильтрации
+  const vacMap = {};
+  (candLinks || []).forEach(cl => {
+    if (!vacMap[cl.candidate_id]) vacMap[cl.candidate_id] = [];
+    vacMap[cl.candidate_id].push(cl.vacancy_id);
+  });
+  allCandidates.forEach(c => c._vacancyIds = vacMap[c.id] || []);
+
+  // Заполняем селект вакансий в фильтрах
+  await populateVacancyFilters();
+
   renderCandidates(allCandidates);
+}
+
+async function populateVacancyFilters() {
+  const { data: vacs } = await sb.from('vacancies')
+    .select('id, title')
+    .eq('recruiter_id', currentUser.id)
+    .in('status', ['open', 'in_work'])
+    .order('title');
+
+  const opts = (vacs || []).map(v => `<option value="${v.id}">${esc(v.title)}</option>`).join('');
+
+  // Фильтр в панели фильтров
+  const filterSel = document.getElementById('filter-vacancy');
+  if (filterSel) filterSel.innerHTML = '<option value="">Все</option>' + opts;
+
+  // Селект в форме кандидата
+  const formSel = document.getElementById('c-vacancy');
+  if (formSel) formSel.innerHTML = '<option value="">— Без вакансии —</option>' + opts;
 }
 
 function renderCandidates(list) {
@@ -1829,6 +1878,7 @@ function filterCandidates() {
   const carQ     = document.getElementById('filter-car')?.value      || '';
   const distQ    = document.getElementById('filter-district')?.value.toLowerCase() || '';
   const dateQ    = document.getElementById('filter-date')?.value     || '';
+  const vacQ     = document.getElementById('filter-vacancy')?.value  || '';
 
   let list = allCandidates.filter(c => {
     if (nameQ   && !c.full_name.toLowerCase().includes(nameQ)) return false;
@@ -1842,6 +1892,7 @@ function filterCandidates() {
     if (carQ    && c.has_car !== carQ) return false;
     if (distQ   && !(c.district_residence||'').toLowerCase().includes(distQ)) return false;
     if (dateQ   && c.created_at && c.created_at.slice(0,10) < dateQ) return false;
+    if (vacQ    && !(c._vacancyIds || []).includes(vacQ)) return false;
     return true;
   });
 
@@ -1888,6 +1939,11 @@ async function openCandidateModal(id = null) {
       document.getElementById('c-exp').value           = c.experience || '';
       // Pipeline stage
       setPipelineStage(c.pipeline_stage || 'new');
+      // Вакансия — берём первую привязанную
+      const vacSel = document.getElementById('c-vacancy');
+      if (vacSel && c._vacancyIds && c._vacancyIds.length) {
+        vacSel.value = c._vacancyIds[0];
+      }
       // Tags
       currentTags = Array.isArray(c.tags) ? [...c.tags] : [];
       document.getElementById('c-tags').value = JSON.stringify(currentTags);
@@ -1956,6 +2012,8 @@ async function saveCandidate(e) {
   if (resumeUrl !== undefined) payload.resume_url = resumeUrl;
 
   let error;
+  let savedId = id; // will hold the candidate's UUID after save
+
   if (id) {
     // Проверяем изменился ли статус для уведомления
     const prev = allCandidates.find(c => c.id === id);
@@ -1974,9 +2032,33 @@ async function saveCandidate(e) {
     }
   } else {
     payload.recruiter_id = currentUser.id;
-    ({ error } = await sb.from('candidates').insert(payload));
+    const { data: inserted, error: insErr } = await sb.from('candidates').insert(payload).select('id').single();
+    error = insErr;
+    if (inserted) savedId = inserted.id;
   }
   if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+
+  // ── Вакансия: при необходимости создаём связку ──────────────────────
+  const vacSel     = document.getElementById('c-vacancy');
+  const selectedVacId = vacSel?.value?.trim() || '';
+
+  if (savedId && selectedVacId) {
+    // Добавляем только если такой связки ещё нет
+    const { data: existing } = await sb.from('candidacies')
+      .select('id')
+      .eq('candidate_id', savedId)
+      .eq('vacancy_id', selectedVacId)
+      .maybeSingle();
+
+    if (!existing) {
+      const { error: cavErr } = await sb.from('candidacies').insert({
+        candidate_id:  savedId,
+        vacancy_id:    selectedVacId,
+        current_stage: 'Новый',
+      });
+      if (cavErr) toast('Ошибка привязки к вакансии: ' + cavErr.message, 'err');
+    }
+  }
 
   toast(id ? 'Кандидат обновлён ✓' : 'Кандидат добавлен ✓');
   closeModal('modal-candidate');
