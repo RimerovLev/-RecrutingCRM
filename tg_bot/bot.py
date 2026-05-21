@@ -447,31 +447,69 @@ async def cmd_pipeline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not rid:
         return
 
+    # Берём все вакансии рекрутера
     vacs = get_open_vacancies(rid)
     if not vacs:
         await update.message.reply_text("Нет открытых вакансий.")
         return
 
-    STAGES = ["new", "resume", "phone", "interview", "offer", "rejected"]
-    STAGE_EMOJI = {"new": "🆕", "resume": "📄", "phone": "📞", "interview": "🤝", "offer": "🎉", "rejected": "❌"}
-    STAGE_NAME  = {"new": "Новые", "resume": "Резюме", "phone": "Звонок",
-                   "interview": "Собес", "offer": "Оффер", "rejected": "Отказ"}
+    vac_ids = [v["id"] for v in vacs]
+    vac_map  = {v["id"]: v["title"] for v in vacs}
 
-    cands_res = (sb.from_("candidates")
-                   .select("id, full_name, pipeline_stage, status")
-                   .eq("recruiter_id", rid)
-                   .neq("status", "archive")
-                   .execute())
-    cands = cands_res.data or []
+    # Загружаем candidacies со стадиями из канбана
+    res = (sb.from_("candidacies")
+             .select("vacancy_id, current_stage, candidates(full_name)")
+             .in_("vacancy_id", vac_ids)
+             .execute())
+    rows = res.data or []
 
-    lines = ["📊 <b>Воронка кандидатов</b>\n"]
-    for stage in STAGES:
-        count = sum(1 for c in cands if (c.get("pipeline_stage") or "new") == stage)
-        if count:
-            bar = "█" * min(count, 10) + ("+" if count > 10 else "")
-            lines.append(f"{STAGE_EMOJI[stage]} <b>{STAGE_NAME[stage]}</b>: {count}  {bar}")
+    if not rows:
+        await update.message.reply_text("В воронке пока нет кандидатов.")
+        return
 
-    lines.append(f"\n👥 Всего активных: {len(cands)}")
+    # Группируем по вакансии → этапу
+    from collections import defaultdict
+    vac_stages: dict = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        vid   = r["vacancy_id"]
+        stage = r.get("current_stage") or "Новый"
+        name  = (r.get("candidates") or {}).get("full_name", "—")
+        vac_stages[vid][stage].append(name)
+
+    # Порядок этапов канбана
+    STAGE_ORDER = ["Новый", "Резюме", "Звонок", "Собеседование", "Оффер", "Отказ"]
+    STAGE_EMOJI = {
+        "Новый": "🆕", "Резюме": "📄", "Звонок": "📞",
+        "Собеседование": "🤝", "Оффер": "🎉", "Отказ": "❌",
+    }
+
+    lines = ["📊 <b>Воронка по вакансиям</b>\n"]
+    total = 0
+
+    for vid in vac_ids:
+        stages = vac_stages.get(vid)
+        if not stages:
+            continue
+        vac_total = sum(len(v) for v in stages.values())
+        total += vac_total
+        lines.append(f"💼 <b>{vac_map[vid]}</b> ({vac_total} чел.)")
+
+        # Показываем этапы в нужном порядке + любые нестандартные
+        shown = set()
+        for stage in STAGE_ORDER:
+            if stage in stages:
+                shown.add(stage)
+                emoji = STAGE_EMOJI.get(stage, "•")
+                count = len(stages[stage])
+                bar   = "█" * min(count, 8) + ("+" if count > 8 else "")
+                lines.append(f"  {emoji} {stage}: {count}  {bar}")
+        for stage, names in stages.items():
+            if stage not in shown:
+                count = len(names)
+                lines.append(f"  • {stage}: {count}")
+        lines.append("")
+
+    lines.append(f"👥 Итого в воронке: {total}")
     await update.message.reply_html("\n".join(lines))
 
 
