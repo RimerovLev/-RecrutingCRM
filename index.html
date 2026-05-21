@@ -342,7 +342,7 @@ CREATE TRIGGER on_auth_user_created
   </aside>
 
   <!-- ── Telegram Link Modal ───────────────────────────────────────────── -->
-  <div id="tg-link-modal" class="modal-overlay hidden">
+  <div id="tg-link-modal" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
     <div class="modal-box max-w-sm">
       <div class="flex justify-between items-center mb-4">
         <h3 class="text-lg font-semibold">✈️ Привязать Telegram</h3>
@@ -1362,13 +1362,13 @@ async function handleLogout() {
 let tgLinkTimerInterval = null;
 
 function openTelegramLink() {
-  document.getElementById('tg-link-modal').classList.remove('hidden');
+  document.getElementById('tg-link-modal').classList.add('active');
   document.getElementById('tg-link-content').classList.remove('hidden');
   document.getElementById('tg-link-result').classList.add('hidden');
 }
 
 function closeTelegramLink() {
-  document.getElementById('tg-link-modal').classList.add('hidden');
+  document.getElementById('tg-link-modal').classList.remove('active');
   if (tgLinkTimerInterval) clearInterval(tgLinkTimerInterval);
 }
 

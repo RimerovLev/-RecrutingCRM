@@ -1,0 +1,16 @@
+app = "recruit-crm-bot"
+primary_region = "ams"
+
+[build]
+
+[env]
+  TIMEZONE = "Europe/Moscow"
+  DIGEST_HOUR = "8"
+  DIGEST_MIN = "30"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+[deploy]
+  strategy = "immediate"
