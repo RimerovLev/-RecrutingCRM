@@ -110,7 +110,7 @@ CREATE TABLE candidacies (
   id            UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   candidate_id  UUID REFERENCES candidates(id) ON DELETE CASCADE NOT NULL,
   vacancy_id    UUID REFERENCES vacancies(id)  ON DELETE CASCADE NOT NULL,
-  current_stage TEXT DEFAULT 'Новый',
+  current_stage TEXT DEFAULT 'new',
   created_at    TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(candidate_id, vacancy_id)
 );
@@ -1479,7 +1479,7 @@ async function bulkAssignVacancy(vacId) {
   let ok = 0, skip = 0;
   for (const candId of ids) {
     const { error } = await sb.from('candidacies').insert({
-      candidate_id: candId, vacancy_id: vacId, current_stage: 'Новый'
+      candidate_id: candId, vacancy_id: vacId, current_stage: 'new'
     });
     error ? skip++ : ok++;
   }
@@ -2776,7 +2776,7 @@ async function linkCandidate(candidateId) {
   const { error } = await sb.from('candidacies').insert({
     candidate_id: candidateId,
     vacancy_id:   currentVacId,
-    current_stage: 'Новый',
+    current_stage: 'new',
   });
   if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
 
@@ -2785,7 +2785,7 @@ async function linkCandidate(candidateId) {
     .select('id').eq('candidate_id', candidateId).eq('vacancy_id', currentVacId).single();
   if (ccy) {
     await sb.from('stage_history').insert({
-      candidacy_id: ccy.id, from_stage: null, to_stage: 'Новый', changed_by: currentUser.id
+      candidacy_id: ccy.id, from_stage: null, to_stage: 'new', changed_by: currentUser.id
     });
   }
   toast('Кандидат привязан ✓');
