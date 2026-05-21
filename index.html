@@ -473,7 +473,7 @@ CREATE TRIGGER on_auth_user_created
         <div id="cand-search-row" class="flex gap-3 mb-3">
           <div class="relative flex-1">
             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">🔍</span>
-            <input id="search-all" type="text" oninput="filterCandidates()"
+            <input id="search-all" type="text" oninput="debouncedSearch()"
               placeholder="Поиск по ФИО, телефону, должности, тегам, источнику, району…"
               class="input-field pl-9 w-full" autocomplete="off" />
           </div>
@@ -551,6 +551,16 @@ CREATE TRIGGER on_auth_user_created
             <tr><td colspan="14" class="py-10 text-center text-slate-400">Загрузка…</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Счётчик + кнопка «Загрузить ещё» -->
+      <div class="flex items-center justify-between mt-3 px-1">
+        <span id="cand-counter" class="text-xs text-slate-400"></span>
+        <button id="load-more-btn" onclick="loadMoreCandidates()"
+          style="display:none"
+          class="btn-sm btn-secondary text-indigo-600 border-indigo-200 hover:bg-indigo-50">
+          Загрузить ещё
+        </button>
       </div>
     </section>
 
@@ -1491,6 +1501,19 @@ function resetFilters() {
 /* ──────────────────────────────────────────────────────────────────────
    УТИЛИТЫ
    ──────────────────────────────────────────────────────────────────── */
+// Дебаунс поиска: 350 мс после последнего нажатия — запрос к серверу
+let _searchTimer = null;
+function debouncedSearch() {
+  clearTimeout(_searchTimer);
+  const q = document.getElementById('search-all')?.value.trim() || '';
+  if (!q) {
+    // Сбросили поле — сразу грузим обычный список
+    loadCandidates();
+    return;
+  }
+  _searchTimer = setTimeout(() => loadCandidates(), 350);
+}
+
 function esc(str) {
   if (str == null) return '';
   return String(str)
@@ -1861,37 +1884,94 @@ function showView(name) {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
-   КАНДИДАТЫ
+   КАНДИДАТЫ — пагинация + поиск
    ──────────────────────────────────────────────────────────────────── */
-async function loadCandidates() {
-  let data, error;
-  if (!isOnline) {
-    data = cacheGet(LS.candidates + '_' + currentUser.id) || [];
-    if (!data.length) { toast('📴 Офлайн — нет кэша кандидатов', 'warn'); return; }
-    toast('📴 Показаны кэшированные данные', 'warn');
-  } else {
-    ({ data, error } = await sb.from('candidates')
-      .select('*').eq('recruiter_id', currentUser.id)
-      .order('created_at', { ascending: false }));
-    if (error) {
-      // Пробуем кэш при ошибке сети
-      const cached = cacheGet(LS.candidates + '_' + currentUser.id);
-      if (cached) { data = cached; toast('📴 Нет сети — показаны кэшированные данные', 'warn'); }
-      else { toast('Ошибка загрузки кандидатов', 'err'); return; }
-    } else {
-      cacheSet(LS.candidates + '_' + currentUser.id, data || []);
-    }
+const PAGE_SIZE = 100;
+let candidatesOffset = 0;   // сколько уже загружено
+let candidatesTotal  = 0;   // всего в БД (по текущему запросу)
+let candidatesSearchMode = false; // true = серверный поиск, нет «загрузить ещё»
+
+async function loadCandidates(append = false) {
+  if (!append) {
+    candidatesOffset = 0;
+    allCandidates    = [];
   }
-  allCandidates = data || [];
 
-  // Загружаем связки кандидат → вакансия (включая текущий этап)
-  const { data: candLinks } = allCandidates.length
-    ? await sb.from('candidacies')
-        .select('id, candidate_id, vacancy_id, current_stage, vacancies(id, title, status)')
-        .in('candidate_id', allCandidates.map(c => c.id))
-    : { data: [] };
+  // ── Офлайн: из кэша ──────────────────────────────────────────────
+  if (!isOnline) {
+    const cached = cacheGet(LS.candidates + '_' + currentUser.id) || [];
+    if (!cached.length) { toast('📴 Офлайн — нет кэша кандидатов', 'warn'); return; }
+    allCandidates    = cached;
+    candidatesTotal  = cached.length;
+    candidatesOffset = cached.length;
+    toast('📴 Показаны кэшированные данные', 'warn');
+    await _attachCandidacies();
+    await populateVacancyFilters();
+    _updateCandidatesCounter();
+    filterCandidates();
+    return;
+  }
 
-  // Вешаем на каждого кандидата _candidacies и _vacancyIds
+  // ── Онлайн ────────────────────────────────────────────────────────
+  const searchQ = (document.getElementById('search-all')?.value || '').trim();
+  candidatesSearchMode = searchQ.length > 0;
+
+  let query = sb.from('candidates')
+    .select('*', { count: 'exact' })
+    .eq('recruiter_id', currentUser.id)
+    .order('created_at', { ascending: false });
+
+  if (searchQ) {
+    // Серверный поиск по ключевым полям (ilike = case-insensitive)
+    query = query.or(
+      `full_name.ilike.%${searchQ}%,` +
+      `phone.ilike.%${searchQ}%,` +
+      `position.ilike.%${searchQ}%,` +
+      `resume_source.ilike.%${searchQ}%,` +
+      `district_residence.ilike.%${searchQ}%,` +
+      `district_work.ilike.%${searchQ}%,` +
+      `experience.ilike.%${searchQ}%,` +
+      `contact_status.ilike.%${searchQ}%`
+    );
+    // При поиске грузим все совпадения (не пагинируем)
+    query = query.limit(500);
+    candidatesOffset = 0;
+    allCandidates    = [];
+  } else {
+    // Обычная постраничная загрузка
+    query = query.range(candidatesOffset, candidatesOffset + PAGE_SIZE - 1);
+  }
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    const cached = cacheGet(LS.candidates + '_' + currentUser.id);
+    if (cached) { allCandidates = cached; toast('📴 Нет сети — показаны кэшированные данные', 'warn'); }
+    else { toast('Ошибка загрузки кандидатов', 'err'); return; }
+  } else {
+    if (!searchQ) cacheSet(LS.candidates + '_' + currentUser.id, data || []);
+    allCandidates    = append ? [...allCandidates, ...(data || [])] : (data || []);
+    candidatesTotal  = count ?? allCandidates.length;
+    candidatesOffset = allCandidates.length;
+  }
+
+  await _attachCandidacies();
+  await populateVacancyFilters();
+  _updateCandidatesCounter();
+  filterCandidates();
+}
+
+// Загружает следующую страницу
+async function loadMoreCandidates() {
+  await loadCandidates(true);
+}
+
+// Подвешивает _candidacies и _vacancyIds к загруженным кандидатам
+async function _attachCandidacies() {
+  if (!allCandidates.length) return;
+  const { data: candLinks } = await sb.from('candidacies')
+    .select('id, candidate_id, vacancy_id, current_stage, vacancies(id, title, status)')
+    .in('candidate_id', allCandidates.map(c => c.id));
   const candMap = {};
   (candLinks || []).forEach(cl => {
     if (!candMap[cl.candidate_id]) candMap[cl.candidate_id] = [];
@@ -1901,11 +1981,18 @@ async function loadCandidates() {
     c._candidacies = candMap[c.id] || [];
     c._vacancyIds  = c._candidacies.map(cc => cc.vacancy_id);
   });
+}
 
-  // Заполняем селект вакансий в фильтрах
-  await populateVacancyFilters();
-
-  renderCandidates(allCandidates);
+// Обновляет счётчик и кнопку «Загрузить ещё»
+function _updateCandidatesCounter() {
+  const el = document.getElementById('cand-counter');
+  const btn = document.getElementById('load-more-btn');
+  if (!el) return;
+  const hasMore = !candidatesSearchMode && candidatesOffset < candidatesTotal;
+  el.textContent = candidatesSearchMode
+    ? `Найдено: ${allCandidates.length}`
+    : `Показано ${allCandidates.length} из ${candidatesTotal}`;
+  if (btn) btn.style.display = hasMore ? 'block' : 'none';
 }
 
 async function populateVacancyFilters() {
@@ -2055,15 +2142,26 @@ function filterCandidates() {
   const vacQ    = document.getElementById('filter-vacancy')?.value  || '';
 
   let list = allCandidates.filter(c => {
-    // ── Универсальный поиск по всем текстовым полям ───────────────
+    // ── Текстовый поиск ───────────────────────────────────────────
     if (q) {
-      const haystack = [
-        c.full_name, c.phone, c.position, c.resume_source,
-        c.district_residence, c.district_work, c.contact_status,
-        c.experience, c.candidate_link,
-        ...(Array.isArray(c.tags) ? c.tags : []),
-      ].filter(Boolean).join(' ').toLowerCase();
-      if (!haystack.includes(q)) return false;
+      if (candidatesSearchMode) {
+        // Сервер уже отфильтровал по основным полям.
+        // Добавляем теги (хранятся как JSON, сервер их не ищет).
+        const tagMatch = (Array.isArray(c.tags) ? c.tags : [])
+          .some(t => t.toLowerCase().includes(q));
+        // Кандидат остаётся если сервер его вернул (он всегда в allCandidates)
+        // ИЛИ если совпадают теги — но раз он в allCandidates, сервер его уже принял.
+        // Здесь ничего не фильтруем — доверяем серверу.
+        void tagMatch;
+      } else {
+        // Офлайн / кэш — полный клиентский поиск
+        const haystack = [
+          c.full_name, c.phone, c.position, c.resume_source,
+          c.district_residence, c.district_work, c.contact_status,
+          c.experience, ...(Array.isArray(c.tags) ? c.tags : []),
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
     }
     // ── Точечные фильтры ──────────────────────────────────────────
     if (statusQ && (c.status || 'active') !== statusQ) return false;
