@@ -471,8 +471,12 @@ CREATE TRIGGER on_auth_user_created
       <!-- Search + Filters -->
       <div class="card p-4 mb-3">
         <div id="cand-search-row" class="flex gap-3 mb-3">
-          <input id="search-name" type="text" onkeyup="filterCandidates()" placeholder="Поиск по ФИО…" class="input-field flex-1" />
-          <input id="search-position" type="text" onkeyup="filterCandidates()" placeholder="Должность, район, источник…" class="input-field flex-1" />
+          <div class="relative flex-1">
+            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">🔍</span>
+            <input id="search-all" type="text" oninput="filterCandidates()"
+              placeholder="Поиск по ФИО, телефону, должности, тегам, источнику, району…"
+              class="input-field pl-9 w-full" autocomplete="off" />
+          </div>
           <button onclick="toggleFilters()" id="filters-toggle-btn" class="btn-sm btn-secondary whitespace-nowrap">⚙️ Фильтры</button>
           <button onclick="resetFilters()" class="btn-sm btn-secondary whitespace-nowrap text-slate-400">✕ Сброс</button>
         </div>
@@ -1080,17 +1084,19 @@ CREATE TRIGGER on_auth_user_created
   .view { /* nothing — just a semantic class */ }
 
   /* Kanban stage header colours */
-  .stage-Новый         { background: #3b82f6; }
-  .stage-Собеседование { background: #f59e0b; }
-  .stage-Оффер         { background: #8b5cf6; }
-  .stage-Принят        { background: #10b981; }
-  .stage-Отказ         { background: #ef4444; }
+  .stage-new       { background: #64748b; }
+  .stage-resume    { background: #3b82f6; }
+  .stage-phone     { background: #f59e0b; }
+  .stage-interview { background: #8b5cf6; }
+  .stage-offer     { background: #10b981; }
+  .stage-rejected  { background: #ef4444; }
 
-  .stage-border-Новый         { border-color: #bfdbfe; background: #eff6ff; }
-  .stage-border-Собеседование { border-color: #fde68a; background: #fffbeb; }
-  .stage-border-Оффер         { border-color: #ddd6fe; background: #f5f3ff; }
-  .stage-border-Принят        { border-color: #a7f3d0; background: #ecfdf5; }
-  .stage-border-Отказ         { border-color: #fecaca; background: #fef2f2; }
+  .stage-border-new       { border-color: #e2e8f0; background: #f8fafc; }
+  .stage-border-resume    { border-color: #bfdbfe; background: #eff6ff; }
+  .stage-border-phone     { border-color: #fde68a; background: #fffbeb; }
+  .stage-border-interview { border-color: #ddd6fe; background: #f5f3ff; }
+  .stage-border-offer     { border-color: #a7f3d0; background: #ecfdf5; }
+  .stage-border-rejected  { border-color: #fecaca; background: #fef2f2; }
 
   /* Sortable headers */
   .rem-sort-btn { background:#f8fafc; border-color:#e2e8f0; color:#64748b; }
@@ -1179,7 +1185,7 @@ CREATE TRIGGER on_auth_user_created
     #drawer-panel { max-width: 100% !important; }
     /* stack search inputs */
     #cand-search-row { flex-direction: column !important; }
-    #cand-search-row input { flex: unset !important; }
+    #cand-search-row .relative { flex: unset !important; width: 100%; }
     /* wrap action buttons */
     .cand-header-btns { justify-content: flex-end; }
     /* kanban horizontal scroll hint */
@@ -1472,12 +1478,11 @@ function toggleFilters() {
 }
 
 function resetFilters() {
-  document.getElementById('search-name').value     = '';
-  document.getElementById('search-position').value = '';
-  document.getElementById('filter-status').value   = '';
-  document.getElementById('filter-car').value      = '';
-  document.getElementById('filter-district').value = '';
-  document.getElementById('filter-date').value     = '';
+  document.getElementById('search-all').value       = '';
+  document.getElementById('filter-status').value    = '';
+  document.getElementById('filter-car').value       = '';
+  document.getElementById('filter-district').value  = '';
+  document.getElementById('filter-date').value      = '';
   sortField = null; sortDir = 1;
   document.querySelectorAll('.sort-icon').forEach(el => el.classList.remove('asc','desc'));
   filterCandidates();
@@ -2042,22 +2047,25 @@ function renderCandidates(list) {
 }
 
 function filterCandidates() {
-  const nameQ    = document.getElementById('search-name').value.toLowerCase();
-  const posQ     = document.getElementById('search-position').value.toLowerCase();
-  const statusQ  = document.getElementById('filter-status')?.value   || '';
-  const carQ     = document.getElementById('filter-car')?.value      || '';
-  const distQ    = document.getElementById('filter-district')?.value.toLowerCase() || '';
-  const dateQ    = document.getElementById('filter-date')?.value     || '';
-  const vacQ     = document.getElementById('filter-vacancy')?.value  || '';
+  const q       = (document.getElementById('search-all')?.value || '').toLowerCase().trim();
+  const statusQ = document.getElementById('filter-status')?.value   || '';
+  const carQ    = document.getElementById('filter-car')?.value      || '';
+  const distQ   = document.getElementById('filter-district')?.value.toLowerCase() || '';
+  const dateQ   = document.getElementById('filter-date')?.value     || '';
+  const vacQ    = document.getElementById('filter-vacancy')?.value  || '';
 
   let list = allCandidates.filter(c => {
-    if (nameQ   && !c.full_name.toLowerCase().includes(nameQ)) return false;
-    if (posQ    && !(
-      (c.position||'').toLowerCase().includes(posQ) ||
-      (c.district_residence||'').toLowerCase().includes(posQ) ||
-      (c.district_work||'').toLowerCase().includes(posQ) ||
-      (c.resume_source||'').toLowerCase().includes(posQ)
-    )) return false;
+    // ── Универсальный поиск по всем текстовым полям ───────────────
+    if (q) {
+      const haystack = [
+        c.full_name, c.phone, c.position, c.resume_source,
+        c.district_residence, c.district_work, c.contact_status,
+        c.experience, c.candidate_link,
+        ...(Array.isArray(c.tags) ? c.tags : []),
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    // ── Точечные фильтры ──────────────────────────────────────────
     if (statusQ && (c.status || 'active') !== statusQ) return false;
     if (carQ    && c.has_car !== carQ) return false;
     if (distQ   && !(c.district_residence||'').toLowerCase().includes(distQ)) return false;
