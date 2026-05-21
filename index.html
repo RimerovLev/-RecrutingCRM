@@ -1299,6 +1299,7 @@ const LS = {
   candidates: 'crm_cache_candidates',
   vacancies:  'crm_cache_vacancies',
   reminders:  'crm_cache_reminders',
+  comments:   'crm_cache_comments',   // кэш по кандидату: LS.comments + '_' + candidateId
   pendingOps: 'crm_pending_ops',
 };
 
@@ -2338,14 +2339,28 @@ async function saveCandidate(e) {
   if (!isOnline) {
     if (id) {
       queueOp({ type: 'update', table: 'candidates', data: payload, matchField: 'id', matchValue: id });
-      // Обновляем локально
       const idx = allCandidates.findIndex(c => c.id === id);
       if (idx !== -1) allCandidates[idx] = { ...allCandidates[idx], ...payload };
     } else {
-      const offlineId = '_offline_' + Date.now();
+      // Используем настоящий UUID — так зависимые записи (candidacies) смогут ссылаться на него
+      const clientId = crypto.randomUUID();
       payload.recruiter_id = currentUser.id;
+      payload.id = clientId;
       queueOp({ type: 'insert', table: 'candidates', data: payload });
-      allCandidates.unshift({ ...payload, id: offlineId, created_at: new Date().toISOString(), _vacancyIds: [] });
+      allCandidates.unshift({ ...payload, created_at: new Date().toISOString(), _vacancyIds: [] });
+
+      // Очередь привязки к вакансии (если выбрана)
+      const vacSelOff = document.getElementById('c-vacancy');
+      const selVacIdOff = vacSelOff?.value?.trim() || '';
+      const selStageOff = document.getElementById('c-pipeline-stage').value || 'new';
+      if (selVacIdOff) {
+        queueOp({ type: 'insert', table: 'candidacies', data: {
+          id: crypto.randomUUID(),
+          candidate_id: clientId,
+          vacancy_id:   selVacIdOff,
+          current_stage: selStageOff,
+        }});
+      }
     }
     cacheSet(LS.candidates + '_' + currentUser.id, allCandidates);
     closeModal('modal-candidate');
