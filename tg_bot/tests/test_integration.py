@@ -436,3 +436,226 @@ class TestGetAllUsers:
         user = next((u for u in users if u["telegram_id"] == TEST_TG_ID), None)
         assert user is not None
         assert user["recruiter_id"] == test_recruiter_id
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Тесты get_open_vacancies и get_stale_vacancies
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestVacancies:
+    def _create_vacancy(self, rid, title, status="open", days_old=0):
+        updated = (datetime.utcnow() - timedelta(days=days_old)).isoformat()
+        res = sb.from_("vacancies").insert({
+            "recruiter_id": rid,
+            "title": f"{TEST_PREFIX}{title}",
+            "status": status,
+            "updated_at": updated,
+        }).execute()
+        return res.data[0]
+
+    def _cleanup_vac(self, rid):
+        sb.from_("vacancies").delete().eq("recruiter_id", rid).ilike("title", f"{TEST_PREFIX}%").execute()
+
+    def test_get_open_vacancies_returns_open(self, test_recruiter_id):
+        self._create_vacancy(test_recruiter_id, "Открытая вакансия", status="open")
+        result = bot_module.get_open_vacancies(test_recruiter_id)
+        titles = [v["title"] for v in result]
+        assert f"{TEST_PREFIX}Открытая вакансия" in titles
+        self._cleanup_vac(test_recruiter_id)
+
+    def test_get_open_vacancies_includes_in_work(self, test_recruiter_id):
+        self._create_vacancy(test_recruiter_id, "В работе вакансия", status="in_work")
+        result = bot_module.get_open_vacancies(test_recruiter_id)
+        titles = [v["title"] for v in result]
+        assert f"{TEST_PREFIX}В работе вакансия" in titles
+        self._cleanup_vac(test_recruiter_id)
+
+    def test_get_open_vacancies_excludes_closed(self, test_recruiter_id):
+        self._create_vacancy(test_recruiter_id, "Закрытая вакансия", status="closed")
+        result = bot_module.get_open_vacancies(test_recruiter_id)
+        titles = [v["title"] for v in result]
+        assert f"{TEST_PREFIX}Закрытая вакансия" not in titles
+        self._cleanup_vac(test_recruiter_id)
+
+    def test_get_stale_vacancies_finds_old(self, test_recruiter_id):
+        self._create_vacancy(test_recruiter_id, "Старая вакансия", status="open", days_old=10)
+        result = bot_module.get_stale_vacancies(test_recruiter_id, days=5)
+        titles = [v["title"] for v in result]
+        assert f"{TEST_PREFIX}Старая вакансия" in titles
+        self._cleanup_vac(test_recruiter_id)
+
+    def test_get_stale_vacancies_excludes_fresh(self, test_recruiter_id):
+        self._create_vacancy(test_recruiter_id, "Свежая вакансия", status="open", days_old=1)
+        result = bot_module.get_stale_vacancies(test_recruiter_id, days=5)
+        titles = [v["title"] for v in result]
+        assert f"{TEST_PREFIX}Свежая вакансия" not in titles
+        self._cleanup_vac(test_recruiter_id)
+
+    def test_get_open_vacancies_only_own(self, test_recruiter_id):
+        self._create_vacancy(test_recruiter_id, "Моя вакансия", status="open")
+        result = bot_module.get_open_vacancies(test_recruiter_id)
+        for v in result:
+            assert v["title"].startswith(TEST_PREFIX) or \
+                   sb.from_("vacancies").select("recruiter_id").eq("id", v["id"]).execute().data[0]["recruiter_id"] == test_recruiter_id
+        self._cleanup_vac(test_recruiter_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Тесты candidacies (воронка канбан)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCandidacies:
+    def _create_vac(self, rid, title):
+        res = sb.from_("vacancies").insert({
+            "recruiter_id": rid,
+            "title": f"{TEST_PREFIX}{title}",
+            "status": "open",
+        }).execute()
+        return res.data[0]
+
+    def _create_cand(self, rid, name):
+        res = sb.from_("candidates").insert({
+            "recruiter_id": rid,
+            "full_name": f"{TEST_PREFIX}{name}",
+            "status": "active",
+        }).execute()
+        return res.data[0]
+
+    def _cleanup(self, rid):
+        cands = sb.from_("candidates").select("id").ilike("full_name", f"{TEST_PREFIX}%").eq("recruiter_id", rid).execute()
+        if cands.data:
+            ids = [c["id"] for c in cands.data]
+            sb.from_("candidacies").delete().in_("candidate_id", ids).execute()
+            sb.from_("candidates").delete().in_("id", ids).execute()
+        sb.from_("vacancies").delete().eq("recruiter_id", rid).ilike("title", f"{TEST_PREFIX}%").execute()
+
+    def test_candidacy_created(self, test_recruiter_id):
+        vac  = self._create_vac(test_recruiter_id, "Вакансия для связки")
+        cand = self._create_cand(test_recruiter_id, "Кандидат для связки")
+        res = sb.from_("candidacies").insert({
+            "candidate_id": cand["id"],
+            "vacancy_id":   vac["id"],
+            "current_stage": "Новый",
+        }).execute()
+        assert res.data[0]["current_stage"] == "Новый"
+        self._cleanup(test_recruiter_id)
+
+    def test_candidacy_stage_updated(self, test_recruiter_id):
+        vac  = self._create_vac(test_recruiter_id, "Вакансия этап")
+        cand = self._create_cand(test_recruiter_id, "Кандидат этап")
+        res = sb.from_("candidacies").insert({
+            "candidate_id": cand["id"],
+            "vacancy_id":   vac["id"],
+            "current_stage": "Новый",
+        }).execute()
+        ccy_id = res.data[0]["id"]
+        sb.from_("candidacies").update({"current_stage": "Собеседование"}).eq("id", ccy_id).execute()
+        check = sb.from_("candidacies").select("current_stage").eq("id", ccy_id).execute()
+        assert check.data[0]["current_stage"] == "Собеседование"
+        self._cleanup(test_recruiter_id)
+
+    def test_multiple_candidates_same_vacancy(self, test_recruiter_id):
+        vac   = self._create_vac(test_recruiter_id, "Вакансия много кандидатов")
+        cand1 = self._create_cand(test_recruiter_id, "Кандидат A")
+        cand2 = self._create_cand(test_recruiter_id, "Кандидат B")
+        sb.from_("candidacies").insert({"candidate_id": cand1["id"], "vacancy_id": vac["id"], "current_stage": "Новый"}).execute()
+        sb.from_("candidacies").insert({"candidate_id": cand2["id"], "vacancy_id": vac["id"], "current_stage": "Оффер"}).execute()
+        res = sb.from_("candidacies").select("current_stage").eq("vacancy_id", vac["id"]).execute()
+        stages = {r["current_stage"] for r in res.data}
+        assert "Новый" in stages
+        assert "Оффер" in stages
+        self._cleanup(test_recruiter_id)
+
+    def test_candidacy_deleted_on_candidate_delete(self, test_recruiter_id):
+        vac  = self._create_vac(test_recruiter_id, "Вакансия каскад")
+        cand = self._create_cand(test_recruiter_id, "Кандидат каскад")
+        sb.from_("candidacies").insert({
+            "candidate_id": cand["id"],
+            "vacancy_id": vac["id"],
+            "current_stage": "Новый",
+        }).execute()
+        # Удаляем кандидата — candidacy должна удалиться CASCADE
+        sb.from_("candidates").delete().eq("id", cand["id"]).execute()
+        check = sb.from_("candidacies").select("id").eq("candidate_id", cand["id"]).execute()
+        assert len(check.data) == 0
+        sb.from_("vacancies").delete().eq("id", vac["id"]).execute()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Тесты add_reminder с привязкой к кандидату
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestAddReminderIntegration:
+    def test_reminder_without_candidate(self, test_recruiter_id):
+        bot_module.add_reminder(test_recruiter_id, f"{TEST_PREFIX}Простое напоминание")
+        res = sb.from_("reminders").select("*")\
+            .eq("recruiter_id", test_recruiter_id)\
+            .ilike("note", f"{TEST_PREFIX}Простое%").execute()
+        assert len(res.data) >= 1
+        assert res.data[0]["candidate_id"] is None
+
+    def test_reminder_with_candidate_name_binds(self, test_recruiter_id):
+        # Создаём кандидата
+        name = f"{TEST_PREFIX}Напомин Кандидатов"
+        cand = bot_module.add_candidate(test_recruiter_id, name)
+        # Создаём напоминание по имени
+        bot_module.add_reminder(test_recruiter_id, f"{TEST_PREFIX}Позвонить", candidate_name=name)
+        res = sb.from_("reminders").select("candidate_id")\
+            .eq("recruiter_id", test_recruiter_id)\
+            .ilike("note", f"{TEST_PREFIX}Позвонить%").execute()
+        assert len(res.data) >= 1
+        assert res.data[0]["candidate_id"] == cand["id"]
+
+    def test_reminder_with_unknown_candidate_no_bind(self, test_recruiter_id):
+        bot_module.add_reminder(test_recruiter_id, f"{TEST_PREFIX}Без привязки", candidate_name="НеСуществует_999")
+        res = sb.from_("reminders").select("candidate_id")\
+            .eq("recruiter_id", test_recruiter_id)\
+            .ilike("note", f"{TEST_PREFIX}Без привязки%").execute()
+        assert len(res.data) >= 1
+        assert res.data[0]["candidate_id"] is None
+
+    def test_reminder_due_date_stored(self, test_recruiter_id):
+        due = (date.today() + timedelta(days=3)).isoformat()
+        bot_module.add_reminder(test_recruiter_id, f"{TEST_PREFIX}С датой", due_date=due)
+        res = sb.from_("reminders").select("due_date")\
+            .eq("recruiter_id", test_recruiter_id)\
+            .ilike("note", f"{TEST_PREFIX}С датой%").execute()
+        assert res.data[0]["due_date"] == due
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Тесты поиска — граничные случаи
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSearchEdgeCases:
+    def test_search_case_insensitive(self, test_recruiter_id):
+        name = f"{TEST_PREFIX}Уникальный Регистр"
+        bot_module.add_candidate(test_recruiter_id, name)
+        # Поиск строчными буквами
+        results = bot_module.search_candidates(test_recruiter_id, "уникальный регистр")
+        assert any("Уникальный Регистр" in c["full_name"] for c in results)
+
+    def test_search_partial_match(self, test_recruiter_id):
+        bot_module.add_candidate(test_recruiter_id, f"{TEST_PREFIX}Частичное Совпадение")
+        results = bot_module.search_candidates(test_recruiter_id, "Частичное")
+        assert len(results) > 0
+
+    def test_search_returns_max_8(self, test_recruiter_id):
+        prefix = f"{TEST_PREFIX}Масс"
+        for i in range(10):
+            bot_module.add_candidate(test_recruiter_id, f"{prefix}{i}")
+        results = bot_module.search_candidates(test_recruiter_id, "Масс")
+        assert len(results) <= 8
+
+    def test_search_empty_query_behaviour(self, test_recruiter_id):
+        # Пустой поиск — ilike("full_name", "%%") → вернёт всё до лимита 8
+        results = bot_module.search_candidates(test_recruiter_id, "")
+        assert len(results) <= 8
+
+    def test_search_special_chars_no_crash(self, test_recruiter_id):
+        # Спецсимволы не должны вызывать исключение
+        try:
+            bot_module.search_candidates(test_recruiter_id, "O'Brien")
+            bot_module.search_candidates(test_recruiter_id, "test%")
+        except Exception as e:
+            pytest.fail(f"Поиск со спецсимволами упал: {e}")

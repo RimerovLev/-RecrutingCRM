@@ -315,6 +315,19 @@ CREATE TRIGGER on_auth_user_created
 ═════════════════════════════════════════════════════════════════════ -->
 <div id="app" class="hidden min-h-screen flex">
 
+  <!-- ── Офлайн-баннер ────────────────────────────────────────────── -->
+  <div id="offline-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;
+    background:#f59e0b;color:#fff;padding:8px 16px;font-size:.85rem;font-weight:600;
+    align-items:center;justify-content:center;gap:12px;">
+    <span>📴 Режим офлайн — изменения сохраняются локально</span>
+    <button onclick="syncPendingOps()" style="background:rgba(255,255,255,.25);border:none;
+      border-radius:6px;padding:3px 10px;color:#fff;cursor:pointer;font-size:.8rem;font-weight:700;">
+      🔄 Синхронизировать
+      <span id="sync-badge" style="display:none;background:#ef4444;border-radius:999px;
+        padding:1px 6px;margin-left:4px;font-size:.7rem;">0</span>
+    </button>
+  </div>
+
   <!-- ── Sidebar (desktop only) ──────────────────────────────────── -->
   <aside id="sidebar-desktop" class="w-56 bg-indigo-900 text-white flex flex-col fixed h-full z-30 shadow-2xl">
     <div class="px-5 py-5 border-b border-indigo-700">
@@ -1211,6 +1224,114 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 emailjs.init(EMAILJS_PUBLIC_KEY);
 
 /* ──────────────────────────────────────────────────────────────────────
+   ██████  SERVICE WORKER  ██████
+   ──────────────────────────────────────────────────────────────────── */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   ██████  ОФЛАЙН-МОДУЛЬ  ██████
+   ──────────────────────────────────────────────────────────────────── */
+
+// ── Состояние сети ────────────────────────────────────────────────
+let isOnline = navigator.onLine;
+
+function setOnlineState(online) {
+  isOnline = online;
+  const banner = document.getElementById('offline-banner');
+  if (banner) banner.style.display = online ? 'none' : 'flex';
+  if (online) {
+    syncPendingOps();
+  }
+}
+
+window.addEventListener('online',  () => setOnlineState(true));
+window.addEventListener('offline', () => setOnlineState(false));
+
+// ── Ключи localStorage ────────────────────────────────────────────
+const LS = {
+  candidates: 'crm_cache_candidates',
+  vacancies:  'crm_cache_vacancies',
+  reminders:  'crm_cache_reminders',
+  pendingOps: 'crm_pending_ops',
+};
+
+// ── Сохранение / чтение кэша ──────────────────────────────────────
+function cacheSet(key, data) {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {}
+}
+function cacheGet(key) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch(e) { return null; }
+}
+
+// ── Очередь офлайн-операций ───────────────────────────────────────
+function getPendingOps() { return cacheGet(LS.pendingOps) || []; }
+function savePendingOps(ops) { cacheSet(LS.pendingOps, ops); }
+
+function queueOp(op) {
+  const ops = getPendingOps();
+  ops.push({ ...op, _id: Date.now() + Math.random(), _ts: Date.now() });
+  savePendingOps(ops);
+  updateSyncBadge();
+  toast('📴 Сохранено офлайн — синхронизируется при подключении', 'warn');
+}
+
+function updateSyncBadge() {
+  const n = getPendingOps().length;
+  const badge = document.getElementById('sync-badge');
+  if (badge) { badge.textContent = n || ''; badge.style.display = n ? 'flex' : 'none'; }
+}
+
+// ── Синхронизация при восстановлении сети ─────────────────────────
+async function syncPendingOps() {
+  const ops = getPendingOps();
+  if (!ops.length) return;
+  toast(`🔄 Синхронизация ${ops.length} изменений…`);
+
+  const failed = [];
+  for (const op of ops) {
+    try {
+      if (op.type === 'insert') {
+        const { error } = await sb.from(op.table).insert(op.data);
+        if (error) { failed.push(op); continue; }
+      } else if (op.type === 'update') {
+        const { error } = await sb.from(op.table).update(op.data).eq(op.matchField, op.matchValue);
+        if (error) { failed.push(op); continue; }
+      } else if (op.type === 'delete') {
+        const { error } = await sb.from(op.table).delete().eq(op.matchField, op.matchValue);
+        if (error) { failed.push(op); continue; }
+      }
+    } catch(e) { failed.push(op); }
+  }
+
+  savePendingOps(failed);
+  updateSyncBadge();
+
+  const synced = ops.length - failed.length;
+  if (synced > 0) {
+    toast(`✅ Синхронизировано ${synced} изменений`);
+    // Перезагружаем данные
+    if (currentUser) {
+      loadCandidates();
+      loadReminders();
+    }
+  }
+  if (failed.length > 0) toast(`⚠️ Не удалось синхронизировать: ${failed.length}`, 'err');
+}
+
+// ── Обёртка для Supabase-запросов с офлайн-фолбэком ──────────────
+async function sbFetch(table, query, cacheKey) {
+  if (!isOnline) {
+    const cached = cacheGet(cacheKey);
+    return { data: cached, fromCache: true };
+  }
+  const result = await query;
+  if (!result.error && result.data) cacheSet(cacheKey, result.data);
+  return result;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
    СОСТОЯНИЕ
    ──────────────────────────────────────────────────────────────────── */
 let currentUser    = null;
@@ -1567,25 +1688,9 @@ async function deleteTemplate(id) {
   loadTemplates();
 }
 
-// ── Status history ────────────────────────────────────────────────────────────
+// ── Status history (заглушка — таблица не создана) ───────────────────────────
 async function loadStatusHistory(candidateId) {
-  const { data } = await sb.from('candidate_history')
-    .select('*, profiles(full_name)')
-    .eq('candidate_id', candidateId)
-    .order('changed_at', { ascending: false })
-    .limit(10);
-  if (!data || !data.length) return;
-  const block = document.getElementById('status-history-block');
-  const list  = document.getElementById('status-history-list');
-  block.classList.remove('hidden');
-  list.innerHTML = data.map(h => {
-    const who  = h.profiles?.full_name || 'Рекрутер';
-    const when = new Date(h.changed_at).toLocaleDateString('ru', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
-    return `<div class="flex justify-between py-1 border-b border-slate-100 last:border-0">
-      <span>${esc(h.field_name)}: <b>${esc(String(h.old_value||'—'))}</b> → <b>${esc(String(h.new_value||'—'))}</b></span>
-      <span class="text-slate-400 ml-2 shrink-0">${when}</span>
-    </div>`;
-  }).join('');
+  // TODO: создать таблицу candidate_history если понадобится история изменений
 }
 
 async function handleLogout() {
@@ -1712,10 +1817,24 @@ function showView(name) {
    КАНДИДАТЫ
    ──────────────────────────────────────────────────────────────────── */
 async function loadCandidates() {
-  const { data, error } = await sb.from('candidates')
-    .select('*').eq('recruiter_id', currentUser.id)
-    .order('created_at', { ascending: false });
-  if (error) { toast('Ошибка загрузки кандидатов', 'err'); return; }
+  let data, error;
+  if (!isOnline) {
+    data = cacheGet(LS.candidates + '_' + currentUser.id) || [];
+    if (!data.length) { toast('📴 Офлайн — нет кэша кандидатов', 'warn'); return; }
+    toast('📴 Показаны кэшированные данные', 'warn');
+  } else {
+    ({ data, error } = await sb.from('candidates')
+      .select('*').eq('recruiter_id', currentUser.id)
+      .order('created_at', { ascending: false }));
+    if (error) {
+      // Пробуем кэш при ошибке сети
+      const cached = cacheGet(LS.candidates + '_' + currentUser.id);
+      if (cached) { data = cached; toast('📴 Нет сети — показаны кэшированные данные', 'warn'); }
+      else { toast('Ошибка загрузки кандидатов', 'err'); return; }
+    } else {
+      cacheSet(LS.candidates + '_' + currentUser.id, data || []);
+    }
+  }
   allCandidates = data || [];
 
   // Загружаем связки кандидат → вакансия
@@ -2018,6 +2137,25 @@ async function saveCandidate(e) {
   let error;
   let savedId = id; // will hold the candidate's UUID after save
 
+  // ── Офлайн: сохраняем в очередь ─────────────────────────────────
+  if (!isOnline) {
+    if (id) {
+      queueOp({ type: 'update', table: 'candidates', data: payload, matchField: 'id', matchValue: id });
+      // Обновляем локально
+      const idx = allCandidates.findIndex(c => c.id === id);
+      if (idx !== -1) allCandidates[idx] = { ...allCandidates[idx], ...payload };
+    } else {
+      const offlineId = '_offline_' + Date.now();
+      payload.recruiter_id = currentUser.id;
+      queueOp({ type: 'insert', table: 'candidates', data: payload });
+      allCandidates.unshift({ ...payload, id: offlineId, created_at: new Date().toISOString(), _vacancyIds: [] });
+    }
+    cacheSet(LS.candidates + '_' + currentUser.id, allCandidates);
+    closeModal('modal-candidate');
+    renderCandidates(allCandidates);
+    return;
+  }
+
   if (id) {
     // Проверяем изменился ли статус для уведомления
     const prev = allCandidates.find(c => c.id === id);
@@ -2081,10 +2219,21 @@ async function deleteCandidate(id, name) {
    ВАКАНСИИ
    ──────────────────────────────────────────────────────────────────── */
 async function loadVacancies() {
-  const { data, error } = await sb.from('vacancies')
-    .select('*').eq('recruiter_id', currentUser.id)
-    .order('created_at', { ascending: false });
-  if (error) { toast('Ошибка загрузки вакансий', 'err'); return; }
+  let data, error;
+  if (!isOnline) {
+    data = cacheGet(LS.vacancies + '_' + currentUser.id) || [];
+  } else {
+    ({ data, error } = await sb.from('vacancies')
+      .select('*').eq('recruiter_id', currentUser.id)
+      .order('created_at', { ascending: false }));
+    if (error) {
+      data = cacheGet(LS.vacancies + '_' + currentUser.id) || [];
+      if (data.length) toast('📴 Нет сети — показаны кэшированные данные', 'warn');
+      else { toast('Ошибка загрузки вакансий', 'err'); return; }
+    } else {
+      cacheSet(LS.vacancies + '_' + currentUser.id, data || []);
+    }
+  }
   allVacancies = data || [];
   renderVacancies(allVacancies);
 }
@@ -2397,11 +2546,20 @@ async function addComment(e) {
    НАПОМИНАНИЯ
    ──────────────────────────────────────────────────────────────────── */
 async function loadReminders() {
-  const { data, error } = await sb.from('reminders')
-    .select('*, candidates(full_name)')
-    .eq('recruiter_id', currentUser.id)
-    .order('created_at', { ascending: true });
-  if (error) { toast('Ошибка загрузки', 'err'); return; }
+  let data, error;
+  if (!isOnline) {
+    data = cacheGet(LS.reminders + '_' + currentUser.id) || [];
+  } else {
+    ({ data, error } = await sb.from('reminders')
+      .select('*, candidates(full_name)')
+      .eq('recruiter_id', currentUser.id)
+      .order('created_at', { ascending: true }));
+    if (error) {
+      data = cacheGet(LS.reminders + '_' + currentUser.id) || [];
+    } else {
+      cacheSet(LS.reminders + '_' + currentUser.id, data || []);
+    }
+  }
   allRemindersCache = data || [];
   reRenderReminders();
   updateReminderBadge(allRemindersCache);
@@ -2494,13 +2652,22 @@ function openReminderModal(candidateId = null) {
 
 async function saveReminder(e) {
   e.preventDefault();
-  const { error } = await sb.from('reminders').insert({
+  const payload = {
     recruiter_id: currentUser.id,
     candidate_id: document.getElementById('rem-cand-id').value || null,
     note:     document.getElementById('rem-note').value.trim(),
     due_date: document.getElementById('rem-date').value || null,
     is_done:  false,
-  });
+  };
+  if (!isOnline) {
+    queueOp({ type: 'insert', table: 'reminders', data: payload });
+    // Показываем локально
+    allRemindersCache.unshift({ ...payload, id: '_offline_' + Date.now() });
+    reRenderReminders();
+    closeModal('modal-reminder');
+    return;
+  }
+  const { error } = await sb.from('reminders').insert(payload);
   if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
   toast('Напоминание создано ✓');
   closeModal('modal-reminder');
@@ -2859,6 +3026,10 @@ function downloadCSV(data, filename) {
    ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ
    ──────────────────────────────────────────────────────────────────── */
 async function init() {
+  // Инициализируем офлайн-состояние
+  setOnlineState(navigator.onLine);
+  updateSyncBadge();
+
   // Restore session
   const { data: { session } } = await sb.auth.getSession();
   if (session?.user) {
