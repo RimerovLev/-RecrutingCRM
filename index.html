@@ -826,14 +826,30 @@ CREATE TRIGGER on_auth_user_created
           <input id="v-sal-max" type="number" min="0" class="input-field" placeholder="150 000" />
         </div>
       </div>
-      <div>
-        <label class="form-label">Статус вакансии</label>
-        <select id="v-status" class="input-field">
-          <option value="open">Открыта</option>
-          <option value="in_work">В работе</option>
-          <option value="closed">Закрыта</option>
-          <option value="archive">Архив</option>
-        </select>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="form-label">Отдел</label>
+          <input id="v-dept" type="text" class="input-field" placeholder="Разработка, Продажи…" />
+        </div>
+        <div>
+          <label class="form-label">Кол-во позиций</label>
+          <input id="v-headcount" type="number" min="1" class="input-field" placeholder="1" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="form-label">Дедлайн закрытия</label>
+          <input id="v-deadline" type="date" class="input-field" />
+        </div>
+        <div>
+          <label class="form-label">Статус вакансии</label>
+          <select id="v-status" class="input-field">
+            <option value="open">Открыта</option>
+            <option value="in_work">В работе</option>
+            <option value="closed">Закрыта</option>
+            <option value="archive">Архив</option>
+          </select>
+        </div>
       </div>
       <div>
         <label class="form-label">📝 Внутренние заметки рекрутера</label>
@@ -2421,7 +2437,7 @@ async function loadVacancies() {
     data = cacheGet(LS.vacancies + '_' + currentUser.id) || [];
   } else {
     ({ data, error } = await sb.from('vacancies')
-      .select('*').eq('recruiter_id', currentUser.id)
+      .select('*, candidacies(count)').eq('recruiter_id', currentUser.id)
       .order('created_at', { ascending: false }));
     if (error) {
       data = cacheGet(LS.vacancies + '_' + currentUser.id) || [];
@@ -2435,22 +2451,65 @@ async function loadVacancies() {
   renderVacancies(allVacancies);
 }
 
+const VAC_STATUS_BADGE = {
+  open:    'bg-emerald-100 text-emerald-700',
+  in_work: 'bg-amber-100 text-amber-700',
+  closed:  'bg-slate-100 text-slate-500',
+  archive: 'bg-orange-100 text-orange-600',
+};
+const VAC_STATUS_LABEL = {
+  open:    'Открыта',
+  in_work: 'В работе',
+  closed:  'Закрыта',
+  archive: 'Архив',
+};
+
 function renderVacancies(list) {
   const grid = document.getElementById('vac-grid');
   if (!list.length) {
     grid.innerHTML = '<div class="col-span-3 card p-10 text-center text-slate-400">Нет вакансий</div>';
     return;
   }
+  const today = new Date(); today.setHours(0,0,0,0);
   grid.innerHTML = list.map(v => {
     const open = v.status === 'open';
+    const badgeCls = VAC_STATUS_BADGE[v.status] || 'bg-slate-100 text-slate-500';
+    const badgeLbl = VAC_STATUS_LABEL[v.status] || v.status;
+
+    // candidate count from embedded count
+    const candCount = v.candidacies?.[0]?.count ?? null;
+
+    // deadline display
+    let deadlineHtml = '';
+    if (v.deadline) {
+      const dl = new Date(v.deadline);
+      const overdue = dl < today;
+      const dlStr = dl.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+      deadlineHtml = `<span class="text-xs ${overdue ? 'text-red-500 font-semibold' : 'text-slate-400'}">⏰ до ${dlStr}</span>`;
+    }
+
+    // headcount display
+    let headcountHtml = '';
+    if (v.headcount) {
+      const hired = candCount !== null ? Math.min(candCount, v.headcount) : '?';
+      headcountHtml = `<span class="text-xs text-slate-400">👥 ${hired}/${v.headcount}</span>`;
+    } else if (candCount !== null) {
+      headcountHtml = `<span class="text-xs text-slate-400">👤 ${candCount} канд.</span>`;
+    }
+
     return `<div class="card p-5 flex flex-col gap-3">
       <div class="flex items-start gap-2">
-        <h3 class="font-bold text-slate-800 flex-1 leading-tight">${esc(v.title)}</h3>
-        <span class="text-xs px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${open ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">
-          ${open ? 'Открыта' : 'Закрыта'}
-        </span>
+        <div class="flex-1 min-w-0">
+          <h3 class="font-bold text-slate-800 leading-tight">${esc(v.title)}</h3>
+          ${v.department ? `<p class="text-xs text-slate-400 mt-0.5">${esc(v.department)}</p>` : ''}
+        </div>
+        <span class="text-xs px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${badgeCls}">${badgeLbl}</span>
       </div>
-      ${(v.salary_min||v.salary_max) ? `<p class="text-slate-500 text-xs">💰 ${money(v.salary_min)} — ${money(v.salary_max)}</p>` : ''}
+      <div class="flex flex-wrap gap-x-3 gap-y-1">
+        ${(v.salary_min||v.salary_max) ? `<span class="text-xs text-slate-500">💰 ${money(v.salary_min)} — ${money(v.salary_max)}</span>` : ''}
+        ${deadlineHtml}
+        ${headcountHtml}
+      </div>
       ${v.description ? `<p class="text-slate-600 text-xs line-clamp-2">${esc(v.description)}</p>` : ''}
       ${v.notes ? `<div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">📝 ${esc(v.notes)}</div>` : ''}
       <div class="flex flex-wrap gap-1.5 mt-auto pt-1 border-t border-slate-100">
@@ -2473,13 +2532,16 @@ async function openVacancyModal(id = null) {
   if (id) {
     const v = allVacancies.find(x => x.id === id);
     if (v) {
-      document.getElementById('v-title').value   = v.title || '';
-      document.getElementById('v-desc').value    = v.description || '';
-      document.getElementById('v-req').value     = v.requirements || '';
-      document.getElementById('v-sal-min').value = v.salary_min || '';
-      document.getElementById('v-sal-max').value = v.salary_max || '';
-      document.getElementById('v-status').value  = v.status || 'open';
-      document.getElementById('v-notes').value   = v.notes || '';
+      document.getElementById('v-title').value     = v.title || '';
+      document.getElementById('v-desc').value      = v.description || '';
+      document.getElementById('v-req').value       = v.requirements || '';
+      document.getElementById('v-sal-min').value   = v.salary_min || '';
+      document.getElementById('v-sal-max').value   = v.salary_max || '';
+      document.getElementById('v-status').value    = v.status || 'open';
+      document.getElementById('v-notes').value     = v.notes || '';
+      document.getElementById('v-dept').value      = v.department || '';
+      document.getElementById('v-headcount').value = v.headcount || '';
+      document.getElementById('v-deadline').value  = v.deadline || '';
     }
   }
   openModal('modal-vacancy');
@@ -2496,6 +2558,9 @@ async function saveVacancy(e) {
     salary_max:   parseInt(document.getElementById('v-sal-max').value) || null,
     status:       document.getElementById('v-status').value || 'open',
     notes:        document.getElementById('v-notes').value.trim() || null,
+    department:   document.getElementById('v-dept').value.trim() || null,
+    headcount:    parseInt(document.getElementById('v-headcount').value) || null,
+    deadline:     document.getElementById('v-deadline').value || null,
   };
   let error;
   if (id) {
