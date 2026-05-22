@@ -380,10 +380,17 @@ CREATE TRIGGER on_auth_user_created
             </div>
           </div>
           <input id="etmpl-subject" type="text" class="input-field text-sm" placeholder="Тема письма" />
-          <textarea id="etmpl-body" rows="4" class="input-field text-sm font-mono"
-            placeholder="HTML или текст письма. Переменные: {candidate_name}, {vacancy_name}, {recruiter_name}"></textarea>
+          <textarea id="etmpl-body" rows="5" class="input-field text-sm font-mono"
+            placeholder="Текст письма…"></textarea>
+          <div class="bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-500 space-y-0.5">
+            <p class="font-semibold text-slate-600 mb-1">Переменные для подстановки:</p>
+            <p><code class="bg-white px-1 rounded border text-indigo-600">{candidate_name}</code> — имя кандидата</p>
+            <p><code class="bg-white px-1 rounded border text-indigo-600">{vacancy_name}</code> — название вакансии</p>
+            <p><code class="bg-white px-1 rounded border text-indigo-600">{recruiter_name}</code> — ваше имя из профиля</p>
+          </div>
+          <input type="hidden" id="etmpl-edit-id" value="" />
           <div class="flex gap-2">
-            <button onclick="saveEmailTemplate()" class="btn-primary flex-1 py-2">+ Сохранить шаблон</button>
+            <button id="etmpl-save-btn" onclick="saveEmailTemplate()" class="btn-primary flex-1 py-2">💾 Сохранить шаблон</button>
             <button onclick="previewEmailTemplate()" class="btn-secondary py-2 px-4">👁 Превью</button>
           </div>
         </div>

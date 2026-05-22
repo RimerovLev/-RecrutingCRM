@@ -42,7 +42,7 @@ import { openMergeModal, renderMergeList, selectMergeCandidate, confirmMerge } f
 import { openTemplatesModal, saveTemplate, deleteTemplate, copyTemplate } from './templates.js';
 import {
   switchTemplateTab, loadEmailTemplates, saveEmailTemplate, deleteEmailTemplate,
-  previewEmailTemplate, useEmailTemplate, loadEmailTemplateDropdown,
+  previewEmailTemplate, useEmailTemplate, loadEmailTemplateDropdown, editEmailTemplate,
 } from './email_templates.js';
 import { startRealtime, stopRealtime } from './realtime.js';
 
@@ -123,7 +123,7 @@ Object.assign(window, {
 
   // Email templates
   switchTemplateTab, loadEmailTemplates, saveEmailTemplate, deleteEmailTemplate,
-  previewEmailTemplate, useEmailTemplate, loadEmailTemplateDropdown,
+  previewEmailTemplate, useEmailTemplate, loadEmailTemplateDropdown, editEmailTemplate,
 
   // Offline sync
   syncPendingOps,
