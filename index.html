@@ -1338,16 +1338,20 @@ async function syncPendingOps() {
   const failed = [];
   for (const op of ops) {
     try {
+      let error;
       if (op.type === 'insert') {
-        const { error } = await sb.from(op.table).insert(op.data);
-        if (error) { failed.push(op); continue; }
+        // insert с явным id (UUID от клиента) — Supabase принимает
+        ({ error } = await sb.from(op.table).insert(op.data));
+        // Если конфликт по PK (уже синхронизировали) — не считаем ошибкой
+        if (error?.code === '23505') { error = null; }
+      } else if (op.type === 'upsert') {
+        ({ error } = await sb.from(op.table).upsert(op.data));
       } else if (op.type === 'update') {
-        const { error } = await sb.from(op.table).update(op.data).eq(op.matchField, op.matchValue);
-        if (error) { failed.push(op); continue; }
+        ({ error } = await sb.from(op.table).update(op.data).eq(op.matchField, op.matchValue));
       } else if (op.type === 'delete') {
-        const { error } = await sb.from(op.table).delete().eq(op.matchField, op.matchValue);
-        if (error) { failed.push(op); continue; }
+        ({ error } = await sb.from(op.table).delete().eq(op.matchField, op.matchValue));
       }
+      if (error) { failed.push(op); }
     } catch(e) { failed.push(op); }
   }
 
@@ -1357,10 +1361,17 @@ async function syncPendingOps() {
   const synced = ops.length - failed.length;
   if (synced > 0) {
     toast(`✅ Синхронизировано ${synced} изменений`);
-    // Перезагружаем данные
     if (currentUser) {
       loadCandidates();
       loadReminders();
+      // Чистим _offline флаги из кэшей комментариев
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith(LS.comments + '_')) {
+          const cached = cacheGet(key) || [];
+          const cleaned = cached.map(c => { const {_offline, _authorName, ...rest} = c; return rest; });
+          cacheSet(key, cleaned);
+        }
+      }
     }
   }
   if (failed.length > 0) toast(`⚠️ Не удалось синхронизировать: ${failed.length}`, 'err');
@@ -2995,9 +3006,14 @@ async function saveReminder(e) {
     is_done:  false,
   };
   if (!isOnline) {
+    const offlineId = crypto.randomUUID();
+    payload.id = offlineId;
     queueOp({ type: 'insert', table: 'reminders', data: payload });
-    // Показываем локально
-    allRemindersCache.unshift({ ...payload, id: '_offline_' + Date.now() });
+    // Показываем локально и кэшируем
+    allRemindersCache.unshift({ ...payload, created_at: new Date().toISOString() });
+    const globalCached = cacheGet(LS.reminders + '_' + currentUser.id) || [];
+    globalCached.unshift({ ...payload, created_at: new Date().toISOString() });
+    cacheSet(LS.reminders + '_' + currentUser.id, globalCached);
     reRenderReminders();
     closeModal('modal-reminder');
     return;
@@ -3719,36 +3735,80 @@ async function drawerAddReminder(e) {
   const date    = document.getElementById('drawer-rem-date').value;
   const time    = document.getElementById('drawer-rem-time').value;
   const dueDate = date || null;
-
   const noteWithTime = time && date ? `${note} (в ${time})` : note;
 
-  const { error } = await sb.from('reminders').insert({
+  const record = {
+    id:           crypto.randomUUID(),
     recruiter_id: currentUser.id,
     candidate_id: drawerCandidateId,
-    note: noteWithTime,
-    due_date: dueDate,
-    is_done: false,
-  });
+    note:         noteWithTime,
+    due_date:     dueDate,
+    is_done:      false,
+    created_at:   new Date().toISOString(),
+  };
+
+  if (!isOnline) {
+    queueOp({ type: 'insert', table: 'reminders', data: record });
+    // Добавляем в кэш напоминаний
+    const cached = cacheGet(LS.reminders + '_' + currentUser.id) || [];
+    cached.unshift(record);
+    cacheSet(LS.reminders + '_' + currentUser.id, cached);
+    toast('📴 Напоминание сохранено офлайн');
+    document.getElementById('drawer-rem-note').value = '';
+    document.getElementById('drawer-rem-date').value = '';
+    document.getElementById('drawer-rem-time').value = '';
+    loadDrawerReminders(drawerCandidateId);
+    return;
+  }
+
+  const { error } = await sb.from('reminders').insert(record);
   if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
   toast('Напоминание добавлено ✓');
   document.getElementById('drawer-rem-note').value = '';
+  document.getElementById('drawer-rem-date').value = '';
+  document.getElementById('drawer-rem-time').value = '';
   loadDrawerReminders(drawerCandidateId);
-  // Update badge
   const { data } = await sb.from('reminders').select('id').eq('recruiter_id', currentUser.id).eq('is_done', false);
   updateReminderBadge(data || []);
 }
 
 async function drawerDoneReminder(id) {
+  if (!isOnline) {
+    queueOp({ type: 'update', table: 'reminders', data: { is_done: true }, matchField: 'id', matchValue: id });
+    // Обновляем кэш
+    const cached = cacheGet(LS.reminders + '_' + currentUser.id) || [];
+    const idx = cached.findIndex(r => r.id === id);
+    if (idx !== -1) cached.splice(idx, 1);
+    cacheSet(LS.reminders + '_' + currentUser.id, cached);
+    loadDrawerReminders(drawerCandidateId);
+    return;
+  }
   await sb.from('reminders').update({ is_done: true }).eq('id', id);
   loadDrawerReminders(drawerCandidateId);
 }
 
 // ── Комментарии в drawer ──────────────────────────────────────────
+function _renderComments(el, data) {
+  if (!data?.length) {
+    el.innerHTML = '<p class="text-slate-400 text-xs">Нет комментариев</p>';
+    return;
+  }
+  el.innerHTML = data.map(c => `
+    <div class="bg-slate-50 rounded-lg px-3 py-2 ${c._offline ? 'opacity-60 border border-amber-200 bg-amber-50' : ''}">
+      <div class="flex justify-between text-xs text-slate-400 mb-0.5">
+        <span class="font-semibold text-slate-600">${esc(c.profiles?.full_name || c._authorName || 'Рекрутер')}${c._offline ? ' 📴' : ''}</span>
+        <span>${fmtDate(c.created_at)}</span>
+      </div>
+      <p class="text-sm text-slate-700">${esc(c.content)}</p>
+    </div>`).join('');
+}
+
 async function loadDrawerComments(candidateId) {
   const el = document.getElementById('drawer-comments');
 
   if (!isOnline) {
-    el.innerHTML = '<p class="text-slate-400 text-xs italic">Комментарии недоступны офлайн</p>';
+    const cached = cacheGet(LS.comments + '_' + candidateId) || [];
+    _renderComments(el, cached);
     return;
   }
 
@@ -3756,26 +3816,40 @@ async function loadDrawerComments(candidateId) {
     .select('*, profiles(full_name)')
     .eq('candidate_id', candidateId)
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(20);
 
-  if (!data?.length) {
-    el.innerHTML = '<p class="text-slate-400 text-xs">Нет комментариев</p>';
-    return;
-  }
-  el.innerHTML = data.map(c => `
-    <div class="bg-slate-50 rounded-lg px-3 py-2">
-      <div class="flex justify-between text-xs text-slate-400 mb-0.5">
-        <span class="font-semibold text-slate-600">${esc(c.profiles?.full_name || 'Рекрутер')}</span>
-        <span>${fmtDate(c.created_at)}</span>
-      </div>
-      <p class="text-sm text-slate-700">${esc(c.content)}</p>
-    </div>`).join('');
+  if (data) cacheSet(LS.comments + '_' + candidateId, data);
+  _renderComments(el, data);
 }
 
 async function drawerAddComment(e) {
   e.preventDefault();
   const content = document.getElementById('drawer-comment-text').value.trim();
   if (!content) return;
+
+  if (!isOnline) {
+    const record = {
+      id: crypto.randomUUID(),
+      candidate_id: drawerCandidateId,
+      author_id: currentUser.id,
+      content,
+      created_at: new Date().toISOString(),
+      _offline: true,
+      _authorName: currentProfile?.full_name || 'Вы',
+    };
+    queueOp({ type: 'insert', table: 'comments', data: {
+      id: record.id, candidate_id: record.candidate_id,
+      author_id: record.author_id, content: record.content,
+    }});
+    // Обновляем кэш
+    const cached = cacheGet(LS.comments + '_' + drawerCandidateId) || [];
+    cached.unshift(record);
+    cacheSet(LS.comments + '_' + drawerCandidateId, cached);
+    document.getElementById('drawer-comment-text').value = '';
+    loadDrawerComments(drawerCandidateId);
+    return;
+  }
+
   const { error } = await sb.from('comments').insert({
     candidate_id: drawerCandidateId,
     author_id: currentUser.id,
