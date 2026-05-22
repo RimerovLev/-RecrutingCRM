@@ -19,6 +19,8 @@ export function setOnlineState(online) {
   isOnline = online;
   const banner = document.getElementById('offline-banner');
   if (banner) banner.style.display = online ? 'none' : 'flex';
+  const app = document.getElementById('app');
+  if (app) app.style.paddingTop = online ? '' : '40px';
   if (online) {
     if (S.currentUser) startRealtime();
     syncPendingOps();

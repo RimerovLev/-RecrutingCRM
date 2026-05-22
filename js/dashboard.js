@@ -46,7 +46,7 @@ export async function loadDashboard() {
     { data: hist  },
   ] = await Promise.all([
     sb.from('candidates').select('id',       { count: 'exact' }).eq('recruiter_id', S.currentUser.id),
-    sb.from('vacancies').select('id, status').eq('recruiter_id', S.currentUser.id),
+    sb.from('vacancies').select('id, status, title').eq('recruiter_id', S.currentUser.id),
     sb.from('reminders').select('id').eq('recruiter_id', S.currentUser.id).eq('is_done', false),
     vacIds.length
       ? sb.from('candidacies').select('current_stage').in('vacancy_id', vacIds)
