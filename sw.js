@@ -1,5 +1,5 @@
 // Recruit CRM — Service Worker (shell + local static assets)
-const CACHE_NAME = 'recruit-crm-v3';
+const CACHE_NAME = 'recruit-crm-v4';
 
 const SHELL_URLS = [
   './',
