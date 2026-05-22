@@ -833,6 +833,46 @@ async def check_notifications(context: ContextTypes.DEFAULT_TYPE):
         log.error(f"check_notifications error: {e}")
 
 
+# ── Напоминания за 10 минут ──────────────────────────────────────────────────
+async def check_upcoming_reminders(context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет уведомление за 10 минут до события (если задано время)."""
+    try:
+        now = datetime.now(TZ)
+        window_start = now + timedelta(minutes=9, seconds=30)
+        window_end   = now + timedelta(minutes=10, seconds=30)
+        today = now.date().isoformat()
+
+        res = (sb.from_("reminders")
+                 .select("*, candidates(full_name), telegram_users!inner(telegram_id)")
+                 .eq("is_done", False)
+                 .eq("due_date", today)
+                 .not_.is_("due_time", "null")
+                 .execute())
+
+        for r in (res.data or []):
+            due_time_str = r.get("due_time")
+            if not due_time_str:
+                continue
+            try:
+                h, m = int(due_time_str[:2]), int(due_time_str[3:5])
+                due_dt = TZ.localize(datetime(now.year, now.month, now.day, h, m))
+            except Exception:
+                continue
+
+            if window_start <= due_dt <= window_end:
+                tg_users = r.get("telegram_users")
+                if not tg_users:
+                    continue
+                tg_id = tg_users[0]["telegram_id"] if isinstance(tg_users, list) else tg_users["telegram_id"]
+                cand = r.get("candidates")
+                cand_str = f"\n👤 {cand['full_name']}" if cand else ""
+                msg = f"⏰ <b>Напоминание через 10 минут!</b>\n{r['note']}{cand_str}\n🕐 {due_time_str[:5]}"
+                await context.bot.send_message(chat_id=tg_id, text=msg, parse_mode="HTML",
+                                               reply_markup=reminder_keyboard(r["id"]))
+    except Exception as e:
+        log.error(f"check_upcoming_reminders error: {e}")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 async def async_main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -876,6 +916,9 @@ async def async_main():
         )
         application.job_queue.run_repeating(
             check_notifications, interval=120, first=10
+        )
+        application.job_queue.run_repeating(
+            check_upcoming_reminders, interval=60, first=30
         )
         log.info(f"Morning digest scheduled at {DIGEST_HOUR}:{DIGEST_MIN:02d} {TIMEZONE}")
 

@@ -109,7 +109,6 @@ export async function populateVacancyFilters() {
   const { data: vacs } = await sb.from('vacancies')
     .select('id, title')
     .eq('recruiter_id', S.currentUser.id)
-    .in('status', ['open', 'in_work'])
     .order('title');
 
   const opts = (vacs || []).map(v => `<option value="${v.id}">${esc(v.title)}</option>`).join('');
@@ -521,6 +520,7 @@ export async function openCandidateModal(id = null) {
     if (c) {
       document.getElementById('c-name').value          = c.full_name || '';
       document.getElementById('c-phone').value         = c.phone || '';
+      document.getElementById('c-email').value         = c.email || '';
       document.getElementById('c-status').value        = c.status || 'active';
       document.getElementById('c-has-car').value       = c.has_car || '';
       document.getElementById('c-district-res').value  = c.district_residence || '';
@@ -599,6 +599,7 @@ export async function saveCandidate(e) {
   const payload = {
     full_name:          fullName,
     phone,
+    email:              document.getElementById('c-email').value.trim() || null,
     status:             document.getElementById('c-status').value || 'active',
     has_car:            document.getElementById('c-has-car').value || null,
     district_residence: document.getElementById('c-district-res').value.trim() || null,

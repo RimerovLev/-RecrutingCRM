@@ -104,6 +104,7 @@ export function openReminderModal(candidateId = null) {
   document.getElementById('rem-cand-id').value = candidateId || '';
   document.getElementById('rem-note').value = '';
   document.getElementById('rem-date').value = '';
+  document.getElementById('rem-time').value = '10:00';
   openModal('modal-reminder');
 }
 
@@ -115,6 +116,7 @@ export async function saveReminder(e) {
     candidate_id: document.getElementById('rem-cand-id').value || null,
     note:     document.getElementById('rem-note').value.trim(),
     due_date: document.getElementById('rem-date').value || null,
+    due_time: document.getElementById('rem-time')?.value || null,
     is_done:  false,
   };
   if (!isOnline) {
