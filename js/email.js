@@ -1,0 +1,69 @@
+import { sb, EMAIL_FROM } from './config.js';
+import { S } from './state.js';
+import { esc, toast, openModal, closeModal } from './utils.js';
+
+export function openEmailModal(candidateId, type) {
+  const c = S.allCandidates.find(x => x.id === candidateId);
+  if (!c) { toast('Кандидат не найден', 'err'); return; }
+  if (!c.email) { toast('У кандидата не указан email', 'err'); return; }
+
+  const labels = { invitation: '📩 Приглашение на собеседование', offer: '🎉 Оффер', rejection: '❌ Отказ' };
+  const descs  = {
+    invitation: `Отправить ${c.full_name} (${c.email}) приглашение на собеседование?`,
+    offer:      `Отправить ${c.full_name} (${c.email}) предложение о работе (оффер)?`,
+    rejection:  `Отправить ${c.full_name} (${c.email}) уведомление об отказе?`,
+  };
+  document.getElementById('email-modal-title').textContent = labels[type];
+  document.getElementById('email-modal-desc').textContent  = descs[type];
+  S.pendingEmail = { candidate: c, type };
+  openModal('modal-email');
+}
+
+export function _buildEmailHtml(type, toName, recruiterName, vacancyName) {
+  const base = `font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#1e293b`;
+  const bodies = {
+    invitation: `<p>Здравствуйте, <b>${toName}</b>!</p>
+      <p>Мы рассмотрели ваше резюме и приглашаем вас на собеседование на позицию <b>${vacancyName}</b>.</p>
+      <p>Пожалуйста, ответьте на это письмо, чтобы согласовать удобное время.</p>`,
+    offer: `<p>Здравствуйте, <b>${toName}</b>!</p>
+      <p>Мы рады сообщить, что вам предложена позиция <b>${vacancyName}</b>.</p>
+      <p>Пожалуйста, свяжитесь с нами для обсуждения деталей оффера.</p>`,
+    rejection: `<p>Здравствуйте, <b>${toName}</b>!</p>
+      <p>Спасибо за интерес к позиции <b>${vacancyName}</b> и потраченное время.</p>
+      <p>К сожалению, на данный момент мы не готовы сделать вам предложение. Желаем удачи в поисках!</p>`,
+  };
+  return `<div style="${base}">
+    ${bodies[type]}
+    <p style="margin-top:24px;color:#64748b">С уважением,<br><b>${recruiterName}</b></p>
+  </div>`;
+}
+
+export async function confirmSendEmail() {
+  if (!S.pendingEmail) return;
+  const { candidate: c, type } = S.pendingEmail;
+  const recruiterName = S.currentProfile?.full_name || S.currentUser.email;
+  const vacancyName   = S.currentVacTitle || 'Открытая вакансия';
+
+  const subjects = {
+    invitation: `Приглашение на собеседование — ${vacancyName}`,
+    offer:      `Предложение о работе — ${vacancyName}`,
+    rejection:  `Результат рассмотрения вашей кандидатуры`,
+  };
+
+  try {
+    const { error } = await sb.functions.invoke('send-email', {
+      body: {
+        from:    EMAIL_FROM,
+        to:      c.email,
+        subject: subjects[type],
+        html:    _buildEmailHtml(type, c.full_name, recruiterName, vacancyName),
+      },
+    });
+    if (error) throw error;
+    toast('Письмо отправлено ✓');
+    closeModal('modal-email');
+  } catch (err) {
+    toast('Ошибка отправки: ' + (err.message || JSON.stringify(err)), 'err');
+  }
+  S.pendingEmail = null;
+}
