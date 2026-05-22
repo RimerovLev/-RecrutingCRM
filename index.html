@@ -5,14 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Recruit CRM</title>
 
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind CSS (pinned CDN) -->
+  <script src="https://cdn.tailwindcss.com?version=3.4.17"></script>
   <!-- Supabase JS v2 -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1"></script>
   <!-- PapaParse (CSV) -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-  <!-- SheetJS (Excel .xls/.xlsx) -->
+  <!-- SheetJS (Excel) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Локальные ключи (не в git): js/config.local.js -->
+  <script src="js/config.local.js"></script>
 
   <link rel="stylesheet" href="css/app.css" />
 </head>
@@ -397,7 +399,7 @@ CREATE TRIGGER on_auth_user_created
         <div id="tg-link-code" class="text-4xl font-mono font-bold tracking-widest text-indigo-600 my-4"></div>
         <p class="text-slate-600 mb-4">Отправь боту в Telegram:</p>
         <div class="bg-slate-100 rounded-lg px-4 py-3 font-mono text-lg text-slate-700 mb-4" id="tg-link-cmd"></div>
-        <button onclick="copyLinkCode()" class="btn btn-secondary w-full mb-2">📋 Скопировать команду</button>
+        <button onclick="copyLinkCode(event)" class="btn btn-secondary w-full mb-2">📋 Скопировать команду</button>
         <p class="text-xs text-slate-400" id="tg-link-timer"></p>
       </div>
     </div>

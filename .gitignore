@@ -2,3 +2,14 @@ tg_bot/.env
 tg_bot/venv/
 __pycache__/
 *.pyc
+.DS_Store
+
+# Секреты фронта (ключи Supabase)
+js/config.local.js
+
+# LibreOffice lock files
+.~lock.*
+
+# Excel temp
+*.xlsx#
+*#

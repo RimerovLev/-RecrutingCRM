@@ -1,5 +1,6 @@
 import { sb, STAGES, STAGE_LABELS } from './config.js';
 import { S } from './state.js';
+import { canWrite } from './auth.js';
 import { esc, money, fmtDate, toast, openModal, closeModal } from './utils.js';
 import { loadCandidates } from './candidates.js';
 
@@ -117,6 +118,7 @@ export async function kanbanDrop(event) {
 }
 
 export async function moveStage(candidacyId, from, to) {
+  if (!canWrite()) { toast('Недостаточно прав (роль viewer)', 'err'); return; }
   const { error } = await sb.from('candidacies').update({ current_stage: to }).eq('id', candidacyId);
   if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
   await sb.from('stage_history').insert({

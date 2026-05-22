@@ -90,6 +90,19 @@ def status_label(status: str) -> str:
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
+def get_upcoming_interviews(rid: str, limit: int = 10):
+    now = datetime.now(TZ).isoformat()
+    res = (sb.from_("interviews")
+             .select("scheduled_at, format, location, status, candidates(full_name), vacancies(title)")
+             .eq("recruiter_id", rid)
+             .eq("status", "scheduled")
+             .gte("scheduled_at", now)
+             .order("scheduled_at")
+             .limit(limit)
+             .execute())
+    return res.data or []
+
+
 def get_today_reminders(rid: str):
     today = date.today().isoformat()
     res = (sb.from_("reminders")
@@ -261,9 +274,31 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/pipeline — кандидаты по этапам воронки\n"
         "/overdue — просроченные напоминания\n"
         "/report — отчёт за неделю\n"
+        "/interviews — ближайшие собеседования\n"
         "/link &lt;код&gt; — привязать аккаунт CRM"
     )
     await update.message.reply_html(text)
+
+
+async def cmd_interviews(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    rid = await require_user(update)
+    if not rid:
+        return
+    items = get_upcoming_interviews(rid)
+    if not items:
+        await update.message.reply_text("📅 Нет запланированных собеседований.")
+        return
+    lines = [f"🗓 <b>Ближайшие собеседования</b> ({len(items)}):"]
+    for i, iv in enumerate(items, 1):
+        cand = iv.get("candidates") or {}
+        vac = iv.get("vacancies") or {}
+        name = cand.get("full_name") or "—"
+        title = vac.get("title") or "—"
+        when = fmt_date(iv.get("scheduled_at"))
+        fmt = iv.get("format") or "online"
+        loc = f" · {iv['location']}" if iv.get("location") else ""
+        lines.append(f"{i}. <b>{name}</b> — {title}\n   {when} ({fmt}{loc})")
+    await update.message.reply_html("\n".join(lines))
 
 
 async def cmd_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -815,6 +850,7 @@ async def async_main():
     app.add_handler(CommandHandler("pipeline",   cmd_pipeline))
     app.add_handler(CommandHandler("overdue",    cmd_overdue))
     app.add_handler(CommandHandler("report",     cmd_report))
+    app.add_handler(CommandHandler("interviews", cmd_interviews))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
@@ -831,6 +867,7 @@ async def async_main():
     BotCommand("pipeline",   "Кандидаты по этапам воронки"),
     BotCommand("overdue",    "Просроченные напоминания"),
     BotCommand("report",     "Отчёт за неделю"),
+    BotCommand("interviews", "Ближайшие собеседования"),
     BotCommand("link",       "Привязать аккаунт CRM"),
 ])
         application.job_queue.run_daily(

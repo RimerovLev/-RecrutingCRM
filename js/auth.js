@@ -61,6 +61,11 @@ export async function loadProfile() {
   applyRoleRestrictions();
 }
 
+export function canWrite() {
+  const role = S.currentProfile?.role || 'recruiter';
+  return role === 'recruiter' || role === 'admin';
+}
+
 export function applyRoleRestrictions() {
   const role = S.currentProfile?.role || 'recruiter';
   const body = document.body;
@@ -93,10 +98,17 @@ export function closeTelegramLink() {
   if (tgLinkTimerInterval) clearInterval(tgLinkTimerInterval);
 }
 
+function _randomLinkCode(len = 6) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => chars[b % chars.length]).join('');
+}
+
 export async function generateLinkCode() {
   if (!S.currentUser) return;
 
-  const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const code = _randomLinkCode(6);
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
   const { error } = await sb.from('link_codes').insert({
@@ -131,10 +143,11 @@ export async function generateLinkCode() {
   }, 1000);
 }
 
-export function copyLinkCode() {
+export function copyLinkCode(ev) {
   const cmd = document.getElementById('tg-link-cmd').textContent;
   navigator.clipboard.writeText(cmd).then(() => {
-    const btn = event.target;
+    const btn = ev?.target;
+    if (!btn) return;
     btn.textContent = '✅ Скопировано!';
     setTimeout(() => btn.textContent = '📋 Скопировать команду', 2000);
   });

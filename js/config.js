@@ -1,14 +1,26 @@
-// ① Supabase  →  app.supabase.com  →  ваш проект  →  Settings → API
-export const SUPABASE_URL      = 'https://xbqunyukacahlotbgrma.supabase.co';
-export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhicXVueXVrYWNhaGxvdGJncm1hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNzExMDIsImV4cCI6MjA5NDg0NzEwMn0.v63tntbHumEOe3I7oHus1TAmo-D8mWJVhkTZLiK-UA4';
+import {
+  SUPABASE_URL as DEF_URL,
+  SUPABASE_ANON_KEY as DEF_KEY,
+  EMAIL_FROM as DEF_EMAIL,
+} from './config.defaults.js';
+
+const cfg = (typeof window !== 'undefined' && window.CRM_CONFIG) || {};
+
+export const SUPABASE_URL      = cfg.SUPABASE_URL      || DEF_URL;
+export const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || DEF_KEY;
+export const EMAIL_FROM        = cfg.EMAIL_FROM        || DEF_EMAIL;
+
+export function assertConfig() {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error(
+      'Supabase не настроен. Скопируйте js/config.local.example.js → js/config.local.js и укажите ключи.'
+    );
+  }
+}
 
 // ② Email — отправка через Supabase Edge Function (Resend)
-//    FROM_EMAIL — ваш верифицированный домен в Resend (или onboarding@resend.dev для теста)
-export const EMAIL_FROM = 'onboarding@resend.dev'; // ← ЗАМЕНИТЬ на свой домен
 
-// Единая система этапов воронки
 export const STAGES = ['new', 'resume', 'phone', 'interview', 'offer', 'rejected'];
-// Этапы, доступные без привязки к вакансии
 export const FREE_STAGES = new Set(['new', 'resume']);
 
 export const STAGE_COLORS = {
@@ -42,6 +54,7 @@ export const VAC_STATUS_LABEL = {
 
 export const PAGE_SIZE = 100;
 
-// Supabase client
+assertConfig();
+
 const { createClient } = supabase;
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);

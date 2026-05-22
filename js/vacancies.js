@@ -1,5 +1,6 @@
 import { sb, VAC_STATUS_BADGE, VAC_STATUS_LABEL } from './config.js';
 import { S } from './state.js';
+import { canWrite } from './auth.js';
 import { esc, money, toast, openModal, closeModal } from './utils.js';
 import { isOnline, LS, cacheSet, cacheGet } from './offline.js';
 
@@ -105,6 +106,7 @@ export async function openVacancyModal(id = null) {
 
 export async function saveVacancy(e) {
   e.preventDefault();
+  if (!canWrite()) { toast('Недостаточно прав (роль viewer)', 'err'); return; }
   const id = document.getElementById('vac-id').value;
   const payload = {
     title:        document.getElementById('v-title').value.trim(),

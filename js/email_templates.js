@@ -5,6 +5,7 @@
 
 import { sb } from './config.js';
 import { S } from './state.js';
+import { canWrite } from './auth.js';
 import { esc, toast } from './utils.js';
 
 // ── Tab switching ─────────────────────────────────────────────────
@@ -72,6 +73,7 @@ function _stripHtml(html) {
 
 // ── Save ──────────────────────────────────────────────────────────
 export async function saveEmailTemplate() {
+  if (!canWrite()) { toast('Недостаточно прав (роль viewer)', 'err'); return; }
   const name     = document.getElementById('etmpl-name').value.trim();
   const type     = document.getElementById('etmpl-type').value;
   const subject  = document.getElementById('etmpl-subject').value.trim();

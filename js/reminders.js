@@ -1,5 +1,6 @@
 import { sb } from './config.js';
 import { S } from './state.js';
+import { canWrite } from './auth.js';
 import { esc, fmtDay, toast, openModal, closeModal } from './utils.js';
 import { isOnline, LS, cacheSet, cacheGet, queueOp } from './offline.js';
 
@@ -108,6 +109,7 @@ export function openReminderModal(candidateId = null) {
 
 export async function saveReminder(e) {
   e.preventDefault();
+  if (!canWrite()) { toast('Недостаточно прав (роль viewer)', 'err'); return; }
   const payload = {
     recruiter_id: S.currentUser.id,
     candidate_id: document.getElementById('rem-cand-id').value || null,

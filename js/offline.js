@@ -1,6 +1,7 @@
 import { sb } from './config.js';
 import { S } from './state.js';
 import { toast } from './utils.js';
+import { startRealtime, stopRealtime } from './realtime.js';
 
 // ── Ключи localStorage ────────────────────────────────────────────
 export const LS = {
@@ -19,7 +20,10 @@ export function setOnlineState(online) {
   const banner = document.getElementById('offline-banner');
   if (banner) banner.style.display = online ? 'none' : 'flex';
   if (online) {
+    if (S.currentUser) startRealtime();
     syncPendingOps();
+  } else {
+    stopRealtime();
   }
 }
 

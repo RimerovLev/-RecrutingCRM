@@ -71,10 +71,20 @@ def section(title):
 section('RLS Policy Definitions (static analysis)')
 
 # Читаем index.html для проверки SQL-схемы
+def _read_schema_sources():
+    parts = []
+    root = os.path.join(os.path.dirname(__file__), '../..')
+    for path in ('index.html', 'supabase/migrations/014_security_roles_link_codes.sql',
+                   'supabase/migrations/011_roles.sql'):
+        full = os.path.join(root, path)
+        if os.path.isfile(full):
+            with open(full) as f:
+                parts.append(f.read())
+    return '\n'.join(parts)
+
 try:
-    with open(os.path.join(os.path.dirname(__file__), '../../index.html')) as f:
-        html = f.read()
-    has_html = True
+    html = _read_schema_sources()
+    has_html = bool(html.strip())
 except FileNotFoundError:
     has_html = False
 

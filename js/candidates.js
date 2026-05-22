@@ -1,6 +1,7 @@
 import { sb, STAGES, FREE_STAGES, STAGE_COLORS, STAGE_LABELS, STATUS_LABELS, STATUS_BADGE, PAGE_SIZE } from './config.js';
 import { S } from './state.js';
-import { esc, money, fmtDate, fmtDay, toast, openModal, closeModal, renderPipelineBadge } from './utils.js';
+import { canWrite } from './auth.js';
+import { esc, escapeIlike, money, fmtDate, fmtDay, toast, openModal, closeModal, renderPipelineBadge } from './utils.js';
 import { isOnline, LS, cacheSet, cacheGet, queueOp } from './offline.js';
 
 // ── Пагинация + поиск ─────────────────────────────────────────────
@@ -36,15 +37,16 @@ export async function loadCandidates(append = false) {
     .order('created_at', { ascending: false });
 
   if (searchQ) {
+    const q = escapeIlike(searchQ);
     query = query.or(
-      `full_name.ilike.%${searchQ}%,` +
-      `phone.ilike.%${searchQ}%,` +
-      `position.ilike.%${searchQ}%,` +
-      `resume_source.ilike.%${searchQ}%,` +
-      `district_residence.ilike.%${searchQ}%,` +
-      `district_work.ilike.%${searchQ}%,` +
-      `experience.ilike.%${searchQ}%,` +
-      `contact_status.ilike.%${searchQ}%`
+      `full_name.ilike.%${q}%,` +
+      `phone.ilike.%${q}%,` +
+      `position.ilike.%${q}%,` +
+      `resume_source.ilike.%${q}%,` +
+      `district_residence.ilike.%${q}%,` +
+      `district_work.ilike.%${q}%,` +
+      `experience.ilike.%${q}%,` +
+      `contact_status.ilike.%${q}%`
     );
     query = query.limit(500);
     S.candidatesOffset = 0;
@@ -381,13 +383,24 @@ export function openBulkVacancyModal() {
 
 export async function bulkAssignVacancy(vacId) {
   const ids = [...S.selectedIds];
-  let ok = 0, skip = 0;
-  for (const candId of ids) {
-    const { error } = await sb.from('candidacies').insert({
-      candidate_id: candId, vacancy_id: vacId, current_stage: 'new'
-    });
-    error ? skip++ : ok++;
+  if (!ids.length) return;
+
+  const rows = ids.map(candidate_id => ({
+    candidate_id, vacancy_id: vacId, current_stage: 'new',
+  }));
+
+  const { data, error } = await sb
+    .from('candidacies')
+    .upsert(rows, { onConflict: 'candidate_id,vacancy_id', ignoreDuplicates: true })
+    .select('id');
+
+  if (error) {
+    toast('Ошибка: ' + error.message, 'err');
+    return;
   }
+
+  const ok = data?.length ?? 0;
+  const skip = ids.length - ok;
   toast(`Добавлено в вакансию: ${ok}${skip ? `, уже привязаны: ${skip}` : ''}`);
   closeModal('modal-bulk-vacancy');
   clearSelection();
@@ -548,6 +561,7 @@ export async function openCandidateModal(id = null) {
 
 export async function saveCandidate(e) {
   e.preventDefault();
+  if (!canWrite()) { toast('Недостаточно прав (роль viewer)', 'err'); return; }
   const id = document.getElementById('cand-id').value;
 
   let resumeUrl = undefined;

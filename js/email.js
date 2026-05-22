@@ -26,22 +26,32 @@ export async function openEmailModal(candidateId, type) {
   openModal('modal-email');
 }
 
+function _applyTemplateVars(html, vars) {
+  return html
+    .replace(/{candidate_name}/g, esc(vars.candidateName))
+    .replace(/{vacancy_name}/g, esc(vars.vacancyName))
+    .replace(/{recruiter_name}/g, esc(vars.recruiterName));
+}
+
 export function _buildEmailHtml(type, toName, recruiterName, vacancyName) {
   const base = `font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#1e293b`;
+  const n = esc(toName);
+  const v = esc(vacancyName);
+  const r = esc(recruiterName);
   const bodies = {
-    invitation: `<p>Здравствуйте, <b>${toName}</b>!</p>
-      <p>Мы рассмотрели ваше резюме и приглашаем вас на собеседование на позицию <b>${vacancyName}</b>.</p>
+    invitation: `<p>Здравствуйте, <b>${n}</b>!</p>
+      <p>Мы рассмотрели ваше резюме и приглашаем вас на собеседование на позицию <b>${v}</b>.</p>
       <p>Пожалуйста, ответьте на это письмо, чтобы согласовать удобное время.</p>`,
-    offer: `<p>Здравствуйте, <b>${toName}</b>!</p>
-      <p>Мы рады сообщить, что вам предложена позиция <b>${vacancyName}</b>.</p>
+    offer: `<p>Здравствуйте, <b>${n}</b>!</p>
+      <p>Мы рады сообщить, что вам предложена позиция <b>${v}</b>.</p>
       <p>Пожалуйста, свяжитесь с нами для обсуждения деталей оффера.</p>`,
-    rejection: `<p>Здравствуйте, <b>${toName}</b>!</p>
-      <p>Спасибо за интерес к позиции <b>${vacancyName}</b> и потраченное время.</p>
+    rejection: `<p>Здравствуйте, <b>${n}</b>!</p>
+      <p>Спасибо за интерес к позиции <b>${v}</b> и потраченное время.</p>
       <p>К сожалению, на данный момент мы не готовы сделать вам предложение. Желаем удачи в поисках!</p>`,
   };
   return `<div style="${base}">
     ${bodies[type] || '<p>—</p>'}
-    <p style="margin-top:24px;color:#64748b">С уважением,<br><b>${recruiterName}</b></p>
+    <p style="margin-top:24px;color:#64748b">С уважением,<br><b>${r}</b></p>
   </div>`;
 }
 
@@ -75,10 +85,11 @@ export async function confirmSendEmail() {
 
   if (savedTmpl) {
     subject = subjectInput || savedTmpl.subject;
-    html = savedTmpl.body_html
-      .replace(/{candidate_name}/g, c.full_name)
-      .replace(/{vacancy_name}/g,   vacancyName)
-      .replace(/{recruiter_name}/g, recruiterName);
+    html = _applyTemplateVars(savedTmpl.body_html, {
+      candidateName: c.full_name,
+      vacancyName,
+      recruiterName,
+    });
   } else {
     subject = subjectInput || defaults[type] || 'Письмо от рекрутера';
     html    = _buildEmailHtml(type, c.full_name, recruiterName, vacancyName);

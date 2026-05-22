@@ -7,6 +7,11 @@ export function esc(str) {
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+/** Escape % and _ for PostgREST ilike patterns */
+export function escapeIlike(q) {
+  return String(q).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
 export function money(n) {
   if (!n && n !== 0) return '—';
   return new Intl.NumberFormat('ru-RU').format(n) + ' ₽';
