@@ -13,8 +13,16 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <!-- SheetJS (Excel) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <!-- Локальные ключи (не в git): js/config.local.js -->
-  <script src="js/config.local.js"></script>
+  <!-- Конфиг для хостинга (anon key — публичный, не секрет) -->
+  <script>
+    window.CRM_CONFIG = {
+      SUPABASE_URL:      'https://xbqunyukacahlotbgrma.supabase.co',
+      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhicXVueXVrYWNhaGxvdGJncm1hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNzExMDIsImV4cCI6MjA5NDg0NzEwMn0.v63tntbHumEOe3I7oHus1TAmo-D8mWJVhkTZLiK-UA4',
+      EMAIL_FROM:        'onboarding@resend.dev',
+    };
+  </script>
+  <!-- Локальные ключи (не в git) — переопределяют конфиг выше на dev-машине -->
+  <script src="js/config.local.js" onerror="void 0"></script>
 
   <link rel="stylesheet" href="css/app.css" />
 </head>
