@@ -33,6 +33,7 @@ export async function openDrawer(candidateId) {
   statusSel.className = `text-xs font-semibold px-3 py-1 rounded-full border-0 cursor-pointer ${sc}`;
 
   document.getElementById('dr-phone').textContent  = c.phone || '—';
+  document.getElementById('dr-email').textContent  = c.email || '—';
   document.getElementById('dr-car').textContent    = c.has_car || '—';
   document.getElementById('dr-res').textContent    = c.district_residence || '—';
   document.getElementById('dr-work').textContent   = c.district_work || '—';
