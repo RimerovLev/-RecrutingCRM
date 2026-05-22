@@ -9,14 +9,10 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Supabase JS v2 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- EmailJS -->
-  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <!-- PapaParse (CSV) -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <!-- SheetJS (Excel .xls/.xlsx) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
   <style>
     /* ── Modals ── */
@@ -49,6 +45,12 @@
     .kanban-card:active { cursor: grabbing; }
     .kanban-drop-zone { transition: background .15s, outline .15s; }
     .kanban-drop-zone.drag-over { background: #e0e7ff; outline: 2px dashed #6366f1; outline-offset: -2px; }
+
+    /* ── Roles ── */
+    body.role-viewer .admin-only { display: none !important; }
+    body.role-viewer .write-disabled { opacity: .4; pointer-events: none; }
+    #role-badge { display: none; }
+    body.role-viewer #role-badge { display: inline-flex; }
 
     /* ── Textarea resize ── */
     textarea { resize: vertical; }
@@ -335,7 +337,10 @@ CREATE TRIGGER on_auth_user_created
   <aside id="sidebar-desktop" class="w-56 bg-indigo-900 text-white flex flex-col fixed h-full z-30 shadow-2xl">
     <div class="px-5 py-5 border-b border-indigo-700">
       <div class="text-lg font-extrabold tracking-tight">🎯 Recruit CRM</div>
-      <div id="user-display" class="text-indigo-300 text-xs mt-1 truncate"></div>
+      <div class="flex items-center gap-2 mt-1">
+        <div id="user-display" class="text-indigo-300 text-xs truncate flex-1"></div>
+        <span id="role-badge" class="text-xs bg-amber-400 text-amber-900 font-bold px-1.5 py-0.5 rounded shrink-0">viewer</span>
+      </div>
     </div>
     <nav class="flex-1 p-3 space-y-0.5">
       <button onclick="showView('dashboard')" data-view="dashboard"
@@ -442,13 +447,13 @@ CREATE TRIGGER on_auth_user_created
       <!-- Chart + reminders -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="card p-5">
-          <h3 class="font-semibold text-slate-700 mb-4">Кандидаты по этапам</h3>
-          <canvas id="stages-chart" height="180"></canvas>
+          <h3 class="font-semibold text-slate-700 mb-4">Воронка найма</h3>
+          <div id="stages-chart"></div>
         </div>
         <div class="card p-5">
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-semibold text-slate-700">Ближайшие напоминания</h3>
-            <button onclick="openReminderModal()" class="btn-sm btn-primary">+ Добавить</button>
+            <button onclick="openReminderModal()" class="btn-sm btn-primary admin-only">+ Добавить</button>
           </div>
           <div id="dash-reminders"></div>
         </div>
@@ -460,14 +465,15 @@ CREATE TRIGGER on_auth_user_created
       <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h2 class="page-title mb-0">👥 Кандидаты</h2>
         <div class="flex flex-wrap gap-2">
-          <label class="btn-sm btn-secondary cursor-pointer">
+          <label class="btn-sm btn-secondary cursor-pointer admin-only">
             📤 Импорт Excel / CSV
             <input type="file" accept=".csv,.xls,.xlsx" onchange="importFile(event)" class="hidden" />
           </label>
           <button onclick="exportAllCandidatesCSV()" class="btn-sm btn-secondary">📥 Экспорт CSV</button>
           <button onclick="openTemplatesModal()" class="btn-sm btn-secondary">💬 Шаблоны</button>
-          <button onclick="seedCandidates()" class="btn-sm btn-secondary" title="Добавить 10 тестовых кандидатов">🌱 Тест-данные</button>
-          <button onclick="openCandidateModal()" class="btn-sm btn-primary">+ Добавить кандидата</button>
+          <button onclick="seedCandidates()" class="btn-sm btn-secondary admin-only" title="Добавить 10 тестовых кандидатов">🌱 Тест-данные</button>
+          <button onclick="openMergeModal()" class="btn-sm btn-secondary">🔀 Дубли</button>
+          <button onclick="openCandidateModal()" class="btn-sm btn-primary admin-only">+ Добавить кандидата</button>
         </div>
       </div>
 
@@ -571,7 +577,7 @@ CREATE TRIGGER on_auth_user_created
     <section id="view-vacancies" class="view hidden">
       <div class="flex items-center justify-between mb-6">
         <h2 class="page-title mb-0">💼 Вакансии</h2>
-        <button onclick="openVacancyModal()" class="btn-sm btn-primary">+ Создать вакансию</button>
+        <button onclick="openVacancyModal()" class="btn-sm btn-primary admin-only">+ Создать вакансию</button>
       </div>
       <div id="vac-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
     </section>
@@ -584,7 +590,7 @@ CREATE TRIGGER on_auth_user_created
         <h2 class="page-title mb-0" id="kanban-vac-title">Канбан</h2>
         <div class="ml-auto flex gap-2 flex-wrap">
           <button onclick="exportKanbanCSV()" class="btn-sm btn-secondary">📥 Экспорт CSV</button>
-          <button onclick="openLinkModal()" class="btn-sm btn-primary">+ Привязать кандидата</button>
+          <button onclick="openLinkModal()" class="btn-sm btn-primary admin-only">+ Привязать кандидата</button>
         </div>
       </div>
       <div id="kanban-board" class="flex gap-3 overflow-x-auto pb-6"></div>
@@ -594,7 +600,7 @@ CREATE TRIGGER on_auth_user_created
     <section id="view-reminders" class="view hidden">
       <div class="flex items-center justify-between mb-4">
         <h2 class="page-title mb-0">🔔 Напоминания</h2>
-        <button onclick="openReminderModal()" class="btn-sm btn-primary">+ Добавить</button>
+        <button onclick="openReminderModal()" class="btn-sm btn-primary admin-only">+ Добавить</button>
       </div>
       <!-- Sort / filter bar -->
       <div class="flex flex-wrap items-center gap-2 mb-5">
@@ -796,6 +802,37 @@ CREATE TRIGGER on_auth_user_created
 </div>
 
 <!-- ── Vacancy modal ─────────────────────────────────────────────────── -->
+<!-- ── Merge Duplicates Modal ─────────────────────────────────────── -->
+<div id="modal-merge" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
+      <h3 class="text-lg font-bold text-slate-800">🔀 Объединить дубликатов</h3>
+      <button onclick="closeModal('modal-merge')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+    </div>
+    <div class="px-6 py-5 space-y-4">
+      <p class="text-sm text-slate-500">Выберите основную карточку (останется) и дубликат (удалится). Все данные дубликата перенесутся.</p>
+      <div>
+        <label class="form-label">🔍 Найти кандидатов</label>
+        <input id="merge-search" type="text" class="input-field" placeholder="Имя, email, телефон…" oninput="renderMergeList()" />
+      </div>
+      <div id="merge-list" class="space-y-2 max-h-64 overflow-y-auto"></div>
+      <div id="merge-selected" class="hidden space-y-3 border-t pt-4">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <p class="text-xs font-semibold text-slate-500 mb-1">Основная (оставить)</p>
+            <div id="merge-main-card" class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-slate-700"></div>
+          </div>
+          <div>
+            <p class="text-xs font-semibold text-slate-500 mb-1">Дубликат (удалить)</p>
+            <div id="merge-dupe-card" class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-slate-700"></div>
+          </div>
+        </div>
+        <button onclick="confirmMerge()" class="btn-primary w-full py-2">🔀 Объединить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="modal-vacancy" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
   <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
     <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
@@ -1251,22 +1288,17 @@ CREATE TRIGGER on_auth_user_created
 const SUPABASE_URL      = 'https://xbqunyukacahlotbgrma.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhicXVueXVrYWNhaGxvdGJncm1hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNzExMDIsImV4cCI6MjA5NDg0NzEwMn0.v63tntbHumEOe3I7oHus1TAmo-D8mWJVhkTZLiK-UA4';               // ← ЗАМЕНИТЬ
 
-// ② EmailJS  →  https://www.emailjs.com
-//    Создайте Email Service (Gmail / Outlook / …) и 3 шаблона.
-//    Переменные в шаблонах: {{to_name}}, {{to_email}},
-//                           {{recruiter_name}}, {{vacancy_name}}
-const EMAILJS_PUBLIC_KEY         = 'YOUR_EMAILJS_PUBLIC_KEY';        // ← ЗАМЕНИТЬ
-const EMAILJS_SERVICE_ID         = 'YOUR_SERVICE_ID';                // ← ЗАМЕНИТЬ
-const EMAILJS_TMPL_INVITATION    = 'YOUR_TEMPLATE_INVITATION';       // ← ЗАМЕНИТЬ
-const EMAILJS_TMPL_OFFER         = 'YOUR_TEMPLATE_OFFER';            // ← ЗАМЕНИТЬ
-const EMAILJS_TMPL_REJECTION     = 'YOUR_TEMPLATE_REJECTION';        // ← ЗАМЕНИТЬ
+// ② Email — отправка через Supabase Edge Function (Resend)
+//    Задеплойте функцию: supabase/functions/send-email/index.ts
+//    Добавьте секрет в Supabase: RESEND_API_KEY=re_xxxxxx
+//    FROM_EMAIL — ваш верифицированный домен в Resend (или onboarding@resend.dev для теста)
+const EMAIL_FROM = 'onboarding@resend.dev';                          // ← ЗАМЕНИТЬ на свой домен
 
 /* ──────────────────────────────────────────────────────────────────────
    ИНИЦИАЛИЗАЦИЯ
    ──────────────────────────────────────────────────────────────────── */
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-emailjs.init(EMAILJS_PUBLIC_KEY);
 
 /* ──────────────────────────────────────────────────────────────────────
    ██████  SERVICE WORKER  ██████
@@ -1398,7 +1430,6 @@ let allVacancies   = [];
 let currentVacId   = null;
 let currentVacTitle = '';
 let pendingEmail   = null;  // { candidate, type }
-let stagesChart    = null;
 
 // Единая система этапов воронки (ключи для candidacies и candidates)
 const STAGES = ['new', 'resume', 'phone', 'interview', 'offer', 'rejected'];
@@ -1887,6 +1918,20 @@ async function loadProfile() {
   }
   document.getElementById('user-display').textContent =
     currentProfile?.full_name || currentUser.email;
+  applyRoleRestrictions();
+}
+
+function applyRoleRestrictions() {
+  const role = currentProfile?.role || 'recruiter';
+  const body = document.body;
+  body.classList.remove('role-viewer', 'role-admin', 'role-recruiter');
+  body.classList.add(`role-${role}`);
+  // Бейдж только для viewer
+  const badge = document.getElementById('role-badge');
+  if (badge) {
+    badge.textContent = role === 'viewer' ? '👁 viewer' : role === 'admin' ? '⚡ admin' : '';
+    badge.style.display = (role === 'viewer' || role === 'admin') ? 'inline-flex' : 'none';
+  }
 }
 
 function showApp() {
@@ -2120,8 +2165,8 @@ function renderCandidates(list) {
       </td>
       <td class="px-4 py-3">
         <div class="flex flex-wrap gap-1">
-          <button onclick="openCandidateModal('${c.id}')" title="Редактировать" class="action-btn text-blue-500">✏️</button>
-          <button onclick="deleteCandidate('${c.id}','${esc(c.full_name)}')" title="Удалить" class="action-btn text-red-400">🗑️</button>
+          <button onclick="openCandidateModal('${c.id}')" title="Редактировать" class="action-btn text-blue-500 admin-only">✏️</button>
+          <button onclick="deleteCandidate('${c.id}','${esc(c.full_name)}')" title="Удалить" class="action-btn text-red-400 admin-only">🗑️</button>
           <button onclick="openCommentsModal('${c.id}','${esc(c.full_name)}')" title="Комментарии" class="action-btn text-slate-500">💬</button>
           <button onclick="openReminderModal('${c.id}')" title="Напоминание" class="action-btn text-amber-500">🔔</button>
           <button onclick="openEmailModal('${c.id}','invitation')" title="Приглашение" class="action-btn text-emerald-500">📩</button>
@@ -2540,11 +2585,11 @@ function renderVacancies(list) {
       ${v.notes ? `<div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">📝 ${esc(v.notes)}</div>` : ''}
       <div class="flex flex-wrap gap-1.5 mt-auto pt-1 border-t border-slate-100">
         <button onclick="openKanban('${v.id}','${esc(v.title)}')" class="btn-primary btn-sm flex-1">📋 Канбан</button>
-        <button onclick="openVacancyModal('${v.id}')"             class="btn-secondary btn-sm px-2.5" title="Редактировать">✏️</button>
-        <button onclick="toggleVacStatus('${v.id}','${v.status}')" class="btn-secondary btn-sm">
+        <button onclick="openVacancyModal('${v.id}')"             class="btn-secondary btn-sm px-2.5 admin-only" title="Редактировать">✏️</button>
+        <button onclick="toggleVacStatus('${v.id}','${v.status}')" class="btn-secondary btn-sm admin-only">
           ${open ? '🔒 Закрыть' : '🔓 Открыть'}
         </button>
-        <button onclick="deleteVacancy('${v.id}','${esc(v.title)}')" class="btn-secondary btn-sm px-2.5 hover:bg-red-50 hover:text-red-500" title="Удалить">🗑️</button>
+        <button onclick="deleteVacancy('${v.id}','${esc(v.title)}')" class="btn-secondary btn-sm px-2.5 hover:bg-red-50 hover:text-red-500 admin-only" title="Удалить">🗑️</button>
       </div>
     </div>`;
   }).join('');
@@ -2618,6 +2663,103 @@ async function deleteVacancy(id, title) {
   if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
   toast('Вакансия удалена');
   loadVacancies();
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   ОБЪЕДИНЕНИЕ ДУБЛЕЙ
+   ──────────────────────────────────────────────────────────────────── */
+let _mergeMain = null;
+let _mergeDupe = null;
+
+function openMergeModal() {
+  _mergeMain = _mergeDupe = null;
+  document.getElementById('merge-search').value = '';
+  document.getElementById('merge-selected').classList.add('hidden');
+  renderMergeList();
+  openModal('modal-merge');
+}
+
+function renderMergeList() {
+  const q = document.getElementById('merge-search').value.toLowerCase().trim();
+  const list = allCandidates.filter(c =>
+    !q ||
+    c.full_name?.toLowerCase().includes(q) ||
+    c.email?.toLowerCase().includes(q) ||
+    c.phone?.includes(q)
+  ).slice(0, 30);
+
+  document.getElementById('merge-list').innerHTML = list.map(c => {
+    const isMain = _mergeMain?.id === c.id;
+    const isDupe = _mergeDupe?.id === c.id;
+    const cls = isMain ? 'border-emerald-400 bg-emerald-50' : isDupe ? 'border-red-400 bg-red-50' : 'border-slate-200 hover:border-indigo-300';
+    return `<div class="border rounded-lg p-3 cursor-pointer transition ${cls}" onclick="selectMergeCandidate('${c.id}')">
+      <div class="font-semibold text-sm text-slate-800">${esc(c.full_name)}</div>
+      <div class="text-xs text-slate-400">${c.email || ''} ${c.phone || ''}</div>
+      ${isMain ? '<span class="text-xs text-emerald-600 font-bold">✓ Основная</span>' : ''}
+      ${isDupe ? '<span class="text-xs text-red-600 font-bold">✓ Дубликат</span>' : ''}
+    </div>`;
+  }).join('') || '<p class="text-sm text-slate-400 text-center py-4">Нет кандидатов</p>';
+}
+
+function selectMergeCandidate(id) {
+  const c = allCandidates.find(x => x.id === id);
+  if (!c) return;
+  if (!_mergeMain) {
+    _mergeMain = c;
+  } else if (_mergeMain.id === c.id) {
+    _mergeMain = null;
+  } else if (!_mergeDupe) {
+    _mergeDupe = c;
+  } else if (_mergeDupe.id === c.id) {
+    _mergeDupe = null;
+  } else {
+    _mergeDupe = c; // replace dupe
+  }
+
+  const sel = document.getElementById('merge-selected');
+  if (_mergeMain && _mergeDupe) {
+    document.getElementById('merge-main-card').innerHTML =
+      `<p class="font-semibold">${esc(_mergeMain.full_name)}</p><p class="text-xs text-slate-400">${_mergeMain.email || ''}</p>`;
+    document.getElementById('merge-dupe-card').innerHTML =
+      `<p class="font-semibold">${esc(_mergeDupe.full_name)}</p><p class="text-xs text-slate-400">${_mergeDupe.email || ''}</p>`;
+    sel.classList.remove('hidden');
+  } else {
+    sel.classList.add('hidden');
+  }
+  renderMergeList();
+}
+
+async function confirmMerge() {
+  if (!_mergeMain || !_mergeDupe) return;
+  const mainId = _mergeMain.id;
+  const dupeId = _mergeDupe.id;
+
+  if (!confirm(`Объединить «${_mergeDupe.full_name}» → «${_mergeMain.full_name}»? Дубликат будет удалён безвозвратно.`)) return;
+
+  // Переносим candidacies (избегаем конфликта UNIQUE candidate_id+vacancy_id)
+  const { data: dupeVacs } = await sb.from('candidacies').select('vacancy_id').eq('candidate_id', dupeId);
+  const { data: mainVacs } = await sb.from('candidacies').select('vacancy_id').eq('candidate_id', mainId);
+  const mainVacIds = new Set((mainVacs || []).map(x => x.vacancy_id));
+  for (const cv of (dupeVacs || [])) {
+    if (!mainVacIds.has(cv.vacancy_id)) {
+      await sb.from('candidacies').update({ candidate_id: mainId }).eq('candidate_id', dupeId).eq('vacancy_id', cv.vacancy_id);
+    }
+  }
+
+  // Переносим комментарии и напоминания
+  await Promise.all([
+    sb.from('comments').update({ candidate_id: mainId }).eq('candidate_id', dupeId),
+    sb.from('reminders').update({ candidate_id: mainId }).eq('candidate_id', dupeId),
+  ]);
+
+  // Удаляем дубликат
+  const { error } = await sb.from('candidates').delete().eq('id', dupeId);
+  if (error) { toast('Ошибка удаления: ' + error.message, 'err'); return; }
+
+  toast(`✅ «${_mergeDupe.full_name}» объединён с «${_mergeMain.full_name}»`);
+  closeModal('modal-merge');
+  _mergeMain = _mergeDupe = null;
+  loadCandidates();
 }
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -3057,26 +3199,56 @@ function openEmailModal(candidateId, type) {
   openModal('modal-email');
 }
 
+function _buildEmailHtml(type, toName, recruiterName, vacancyName) {
+  const base = `font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#1e293b`;
+  const subjects = {
+    invitation: `Приглашение на собеседование — ${vacancyName}`,
+    offer:      `Предложение о работе — ${vacancyName}`,
+    rejection:  `Результат рассмотрения вашей кандидатуры`,
+  };
+  const bodies = {
+    invitation: `<p>Здравствуйте, <b>${toName}</b>!</p>
+      <p>Мы рассмотрели ваше резюме и приглашаем вас на собеседование на позицию <b>${vacancyName}</b>.</p>
+      <p>Пожалуйста, ответьте на это письмо, чтобы согласовать удобное время.</p>`,
+    offer: `<p>Здравствуйте, <b>${toName}</b>!</p>
+      <p>Мы рады сообщить, что вам предложена позиция <b>${vacancyName}</b>.</p>
+      <p>Пожалуйста, свяжитесь с нами для обсуждения деталей оффера.</p>`,
+    rejection: `<p>Здравствуйте, <b>${toName}</b>!</p>
+      <p>Спасибо за интерес к позиции <b>${vacancyName}</b> и потраченное время.</p>
+      <p>К сожалению, на данный момент мы не готовы сделать вам предложение. Желаем удачи в поисках!</p>`,
+  };
+  return `<div style="${base}">
+    ${bodies[type]}
+    <p style="margin-top:24px;color:#64748b">С уважением,<br><b>${recruiterName}</b></p>
+  </div>`;
+}
+
 async function confirmSendEmail() {
   if (!pendingEmail) return;
   const { candidate: c, type } = pendingEmail;
-  const templates = {
-    invitation: EMAILJS_TMPL_INVITATION,
-    offer:      EMAILJS_TMPL_OFFER,
-    rejection:  EMAILJS_TMPL_REJECTION,
+  const recruiterName = currentProfile?.full_name || currentUser.email;
+  const vacancyName   = currentVacTitle || 'Открытая вакансия';
+
+  const subjects = {
+    invitation: `Приглашение на собеседование — ${vacancyName}`,
+    offer:      `Предложение о работе — ${vacancyName}`,
+    rejection:  `Результат рассмотрения вашей кандидатуры`,
   };
-  const params = {
-    to_name:       c.full_name,
-    to_email:      c.email,
-    recruiter_name: currentProfile?.full_name || currentUser.email,
-    vacancy_name:  currentVacTitle || 'Открытая вакансия',
-  };
+
   try {
-    await emailjs.send(EMAILJS_SERVICE_ID, templates[type], params);
+    const { error } = await sb.functions.invoke('send-email', {
+      body: {
+        from:    EMAIL_FROM,
+        to:      c.email,
+        subject: subjects[type],
+        html:    _buildEmailHtml(type, c.full_name, recruiterName, vacancyName),
+      },
+    });
+    if (error) throw error;
     toast('Письмо отправлено ✓');
     closeModal('modal-email');
   } catch (err) {
-    toast('Ошибка EmailJS: ' + (err.text || err.message || JSON.stringify(err)), 'err');
+    toast('Ошибка отправки: ' + (err.message || JSON.stringify(err)), 'err');
   }
   pendingEmail = null;
 }
@@ -3170,25 +3342,46 @@ async function loadDashboard() {
 }
 
 function drawStagesChart(counts) {
-  const ctx = document.getElementById('stages-chart').getContext('2d');
-  if (stagesChart) stagesChart.destroy();
-  stagesChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: STAGES.map(s => STAGE_LABELS[s] || s),
-      datasets: [{
-        label: 'Кандидаты',
-        data: STAGES.map(s => counts[s] || 0),
-        backgroundColor: ['#94a3b8','#3b82f6','#f59e0b','#8b5cf6','#10b981','#ef4444'],
-        borderRadius: 6,
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } } }
-    }
+  const el = document.getElementById('stages-chart');
+  const COLORS = { new:'#94a3b8', resume:'#3b82f6', phone:'#f59e0b', interview:'#8b5cf6', offer:'#10b981', rejected:'#ef4444' };
+  // Воронка только по этапам до "rejected" (rejected — отдельная метрика)
+  const funnelStages = STAGES.filter(s => s !== 'rejected');
+  const maxCount = Math.max(1, ...funnelStages.map(s => counts[s] || 0));
+
+  const rows = funnelStages.map((stage, i) => {
+    const count = counts[stage] || 0;
+    const prev  = i > 0 ? (counts[funnelStages[i-1]] || 0) : count;
+    const conv  = (i > 0 && prev > 0) ? Math.round(count / prev * 100) : null;
+    const barPct = Math.round(count / maxCount * 100);
+    return { stage, count, conv, barPct, color: COLORS[stage] };
   });
+
+  const rejCount = counts['rejected'] || 0;
+
+  el.innerHTML = `
+    <div class="space-y-2">
+      ${rows.map((r, i) => `
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500 w-20 shrink-0 text-right">${STAGE_LABELS[r.stage]}</span>
+          <div class="flex-1 relative h-7 bg-slate-100 rounded-lg overflow-hidden">
+            <div class="h-full rounded-lg transition-all duration-500" style="width:${r.barPct}%;background:${r.color}"></div>
+            <span class="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-700">${r.count}</span>
+          </div>
+          <span class="text-xs w-10 text-right shrink-0 ${r.conv != null ? 'text-slate-400' : 'invisible'}">
+            ${r.conv != null ? r.conv + '%' : ''}
+          </span>
+        </div>
+      `).join('')}
+      <div class="border-t border-slate-100 pt-2 mt-1 flex items-center gap-2">
+        <span class="text-xs text-slate-500 w-20 shrink-0 text-right">${STAGE_LABELS['rejected']}</span>
+        <div class="flex-1 relative h-7 bg-slate-100 rounded-lg overflow-hidden">
+          <div class="h-full rounded-lg transition-all duration-500 bg-red-400" style="width:${Math.round(rejCount/maxCount*100)}%"></div>
+          <span class="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-700">${rejCount}</span>
+        </div>
+        <span class="text-xs w-10 shrink-0"></span>
+      </div>
+    </div>
+    <p class="text-xs text-slate-400 mt-3 text-right">% — конверсия от предыдущего этапа</p>`;
 }
 
 function calcAvgInterviewDays(history) {
