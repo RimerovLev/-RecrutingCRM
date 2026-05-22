@@ -66,6 +66,7 @@ export async function openDrawer(candidateId) {
   document.getElementById('dr-contact').textContent = c.contact_status || 'Не указано';
 
   await loadDrawerReminders(candidateId);
+  await loadDrawerInterviews(candidateId);
   loadDrawerTimeline(candidateId);
   await loadDrawerComments(candidateId);
 
@@ -402,6 +403,98 @@ export async function drawerAddComment(e) {
   if (error) { toast('Ошибка', 'err'); return; }
   document.getElementById('drawer-comment-text').value = '';
   loadDrawerComments(S.drawerCandidateId);
+}
+
+// ── Собеседования в drawer ────────────────────────────────────────
+const FORMAT_LABEL = { online: '💻 Онлайн', office: '🏢 В офисе', phone: '📞 Телефон' };
+const INT_STATUS   = { scheduled: '🗓 Запланировано', done: '✅ Проведено', cancelled: '❌ Отменено' };
+
+export async function loadDrawerInterviews(candidateId) {
+  const el = document.getElementById('dr-interviews-list');
+  if (!el) return;
+
+  if (!isOnline) {
+    el.innerHTML = '<p class="text-xs text-slate-400">Недоступно офлайн</p>';
+    return;
+  }
+
+  const { data, error } = await sb.from('interviews')
+    .select('*')
+    .eq('candidate_id', candidateId)
+    .order('scheduled_at', { ascending: true });
+
+  if (error) { el.innerHTML = ''; return; }
+  if (!data?.length) {
+    el.innerHTML = '<p class="text-xs text-slate-400">Нет запланированных собеседований</p>';
+    return;
+  }
+
+  const now = new Date();
+  el.innerHTML = data.map(iv => {
+    const dt      = new Date(iv.scheduled_at);
+    const past    = dt < now;
+    const dtStr   = dt.toLocaleString('ru-RU', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+    const bgCls   = iv.status === 'done'      ? 'bg-green-50 border-green-200'
+                  : iv.status === 'cancelled' ? 'bg-slate-50 border-slate-200 opacity-60'
+                  : past                      ? 'bg-amber-50 border-amber-200'
+                  : 'bg-white border-indigo-100';
+    const locHtml = iv.location
+      ? `<span class="text-slate-400 truncate max-w-[140px]" title="${esc(iv.location)}">${esc(iv.location)}</span>` : '';
+    const actHtml = iv.status === 'scheduled'
+      ? `<button onclick="drawerInterviewDone('${iv.id}')" title="Проведено"
+           class="action-btn text-green-600" >✓</button>
+         <button onclick="drawerInterviewCancel('${iv.id}')" title="Отменить"
+           class="action-btn text-red-400">✕</button>`
+      : `<span class="text-xs text-slate-400">${INT_STATUS[iv.status]||iv.status}</span>`;
+    return `<div class="flex items-start gap-2 border rounded-lg px-3 py-2 ${bgCls}">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-xs font-semibold text-slate-700">${dtStr}</span>
+          <span class="text-xs text-indigo-600">${FORMAT_LABEL[iv.format]||iv.format}</span>
+          ${locHtml}
+        </div>
+        ${iv.notes ? `<p class="text-xs text-slate-500 mt-0.5 truncate">${esc(iv.notes)}</p>` : ''}
+      </div>
+      <div class="flex-shrink-0 flex gap-1 items-center">${actHtml}</div>
+    </div>`;
+  }).join('');
+}
+
+export async function drawerAddInterview(e) {
+  e.preventDefault();
+  const datetimeVal = document.getElementById('dr-int-datetime').value;
+  const format      = document.getElementById('dr-int-format').value;
+  const location    = document.getElementById('dr-int-location').value.trim();
+  const notes       = document.getElementById('dr-int-notes').value.trim();
+
+  if (!datetimeVal) { toast('Укажите дату и время', 'err'); return; }
+
+  const { error } = await sb.from('interviews').insert({
+    candidate_id: S.drawerCandidateId,
+    recruiter_id: S.currentUser.id,
+    scheduled_at: new Date(datetimeVal).toISOString(),
+    format, location: location || null, notes: notes || null,
+  });
+  if (error) { toast('Ошибка: ' + error.message, 'err'); return; }
+
+  toast('Собеседование запланировано ✓');
+  document.getElementById('dr-int-datetime').value = '';
+  document.getElementById('dr-int-location').value = '';
+  document.getElementById('dr-int-notes').value    = '';
+  // collapse the details
+  const det = document.querySelector('#dr-interviews-list')?.closest('.mx-5')?.querySelector('details');
+  if (det) det.open = false;
+  loadDrawerInterviews(S.drawerCandidateId);
+}
+
+export async function drawerInterviewDone(id) {
+  await sb.from('interviews').update({ status: 'done' }).eq('id', id);
+  loadDrawerInterviews(S.drawerCandidateId);
+}
+
+export async function drawerInterviewCancel(id) {
+  await sb.from('interviews').update({ status: 'cancelled' }).eq('id', id);
+  loadDrawerInterviews(S.drawerCandidateId);
 }
 
 // ── Действия из drawer ─────────────────────────────────────────────

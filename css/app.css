@@ -38,6 +38,10 @@ body.role-viewer #role-badge { display: inline-flex; }
 /* ── Textarea resize ── */
 textarea { resize: vertical; }
 
+/* ── Realtime dot ── */
+#realtime-dot { background: #64748b; }
+#realtime-dot.active { background: #10b981; box-shadow: 0 0 6px #10b981; }
+
 /* ── Table rows ── */
 tbody tr:last-child td { border-bottom: none; }
 

@@ -287,6 +287,7 @@ CREATE TRIGGER on_auth_user_created
       <div class="flex items-center gap-2 mt-1">
         <div id="user-display" class="text-indigo-300 text-xs truncate flex-1"></div>
         <span id="role-badge" class="text-xs bg-amber-400 text-amber-900 font-bold px-1.5 py-0.5 rounded shrink-0">viewer</span>
+        <span id="realtime-dot" title="Realtime" class="w-2 h-2 rounded-full bg-slate-500 shrink-0 transition-colors"></span>
       </div>
     </div>
     <nav class="flex-1 p-3 space-y-0.5">
@@ -322,18 +323,60 @@ CREATE TRIGGER on_auth_user_created
 
   <!-- ── Templates Modal ──────────────────────────────────────────────── -->
   <div id="modal-templates" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
-      <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b">
-        <h3 class="text-lg font-bold text-slate-800">💬 Шаблоны сообщений</h3>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between px-6 pt-5 pb-3 border-b">
+        <h3 class="text-lg font-bold text-slate-800">📋 Шаблоны</h3>
         <button onclick="closeModal('modal-templates')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
       </div>
-      <div class="flex-1 overflow-y-auto px-6 py-4 space-y-3" id="templates-list">
-        <p class="text-slate-400 text-sm text-center py-6">Нет шаблонов. Добавь первый ниже.</p>
+      <!-- Tabs -->
+      <div class="flex border-b px-6 gap-4">
+        <button id="tmpl-tab-msg" onclick="switchTemplateTab('msg')"
+          class="py-2.5 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-600 -mb-px">💬 Сообщения</button>
+        <button id="tmpl-tab-email" onclick="switchTemplateTab('email')"
+          class="py-2.5 text-sm font-semibold border-b-2 border-transparent text-slate-500 -mb-px">📧 Email</button>
       </div>
-      <div class="px-6 py-4 border-t space-y-2">
-        <input id="tmpl-title" type="text" class="input-field" placeholder="Название шаблона" />
-        <textarea id="tmpl-body" rows="3" class="input-field" placeholder="Текст сообщения… Можно использовать {имя}, {должность}"></textarea>
-        <button onclick="saveTemplate()" class="btn-primary w-full py-2">+ Добавить шаблон</button>
+
+      <!-- Tab: Messages -->
+      <div id="tmpl-pane-msg" class="flex-1 flex flex-col overflow-hidden">
+        <div class="flex-1 overflow-y-auto px-6 py-4 space-y-3" id="templates-list">
+          <p class="text-slate-400 text-sm text-center py-6">Нет шаблонов. Добавь первый ниже.</p>
+        </div>
+        <div class="px-6 py-4 border-t space-y-2">
+          <input id="tmpl-title" type="text" class="input-field" placeholder="Название шаблона" />
+          <textarea id="tmpl-body" rows="3" class="input-field" placeholder="Текст сообщения… Можно использовать {имя}, {должность}"></textarea>
+          <button onclick="saveTemplate()" class="btn-primary w-full py-2">+ Добавить шаблон</button>
+        </div>
+      </div>
+
+      <!-- Tab: Email templates -->
+      <div id="tmpl-pane-email" class="hidden flex-1 flex flex-col overflow-hidden">
+        <div class="flex-1 overflow-y-auto px-6 py-4 space-y-3" id="email-templates-list">
+          <p class="text-slate-400 text-sm text-center py-6">Нет email-шаблонов.</p>
+        </div>
+        <div class="px-6 py-4 border-t space-y-2">
+          <div class="flex gap-2">
+            <div class="flex-1">
+              <label class="form-label">Название</label>
+              <input id="etmpl-name" type="text" class="input-field text-sm" placeholder="Приглашение на собеседование" />
+            </div>
+            <div class="w-36">
+              <label class="form-label">Тип</label>
+              <select id="etmpl-type" class="input-field text-sm">
+                <option value="invite">Приглашение</option>
+                <option value="rejection">Отказ</option>
+                <option value="offer">Оффер</option>
+                <option value="custom">Произвольный</option>
+              </select>
+            </div>
+          </div>
+          <input id="etmpl-subject" type="text" class="input-field text-sm" placeholder="Тема письма" />
+          <textarea id="etmpl-body" rows="4" class="input-field text-sm font-mono"
+            placeholder="HTML или текст письма. Переменные: {candidate_name}, {vacancy_name}, {recruiter_name}"></textarea>
+          <div class="flex gap-2">
+            <button onclick="saveEmailTemplate()" class="btn-primary flex-1 py-2">+ Сохранить шаблон</button>
+            <button onclick="previewEmailTemplate()" class="btn-secondary py-2 px-4">👁 Превью</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -394,7 +437,13 @@ CREATE TRIGGER on_auth_user_created
       <!-- Chart + reminders -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="card p-5">
-          <h3 class="font-semibold text-slate-700 mb-4">Воронка найма</h3>
+          <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
+            <h3 class="font-semibold text-slate-700">Воронка найма</h3>
+            <select id="funnel-vacancy-sel" onchange="filterFunnelByVacancy(this.value)"
+              class="input-field text-xs py-1 w-44 shrink-0">
+              <option value="">Все вакансии</option>
+            </select>
+          </div>
           <div id="stages-chart"></div>
         </div>
         <div class="card p-5">
@@ -403,6 +452,17 @@ CREATE TRIGGER on_auth_user_created
             <button onclick="openReminderModal()" class="btn-sm btn-primary admin-only">+ Добавить</button>
           </div>
           <div id="dash-reminders"></div>
+        </div>
+      </div>
+
+      <!-- Interview calendar -->
+      <div class="card p-5 mt-4">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold text-slate-700">🗓 Собеседования на неделе</h3>
+          <span id="dash-int-week" class="text-xs text-slate-400"></span>
+        </div>
+        <div id="dash-interviews" class="overflow-x-auto">
+          <p class="text-slate-400 text-sm">Загрузка…</p>
         </div>
       </div>
     </section>
@@ -1081,14 +1141,27 @@ CREATE TRIGGER on_auth_user_created
 
 <!-- ── Email modal ───────────────────────────────────────────────────── -->
 <div id="modal-email" class="modal-overlay fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
     <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b">
       <h3 id="email-modal-title" class="text-lg font-bold text-slate-800">Отправить письмо</h3>
       <button onclick="closeModal('modal-email')" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
     </div>
-    <div class="px-6 py-5">
-      <p id="email-modal-desc" class="text-slate-600 mb-5 leading-relaxed"></p>
-      <div class="flex gap-3">
+    <div class="px-6 py-5 space-y-3">
+      <p id="email-modal-desc" class="text-slate-600 leading-relaxed"></p>
+      <!-- Template selector -->
+      <div>
+        <label class="form-label">Шаблон</label>
+        <select id="email-template-sel" onchange="applyEmailTemplateFromSel(this.value)"
+          class="input-field text-sm hidden">
+          <option value="">— использовать шаблон —</option>
+        </select>
+      </div>
+      <!-- Subject override -->
+      <div>
+        <label class="form-label">Тема письма</label>
+        <input id="email-subject" type="text" class="input-field text-sm" placeholder="(оставь пустым — используется тема по умолчанию)" />
+      </div>
+      <div class="flex gap-3 pt-1">
         <button onclick="confirmSendEmail()" class="btn-primary flex-1 py-2">Отправить ✉️</button>
         <button onclick="closeModal('modal-email')" class="btn-secondary flex-1 py-2">Отмена</button>
       </div>

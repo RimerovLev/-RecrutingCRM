@@ -24,21 +24,27 @@ import {
   kanbanDragStart, kanbanDragOver, kanbanDragEnter, kanbanDragLeave, kanbanDrop,
   exportKanbanCSV,
 } from './kanban.js';
-import { loadDashboard } from './dashboard.js';
+import { loadDashboard, filterFunnelByVacancy, loadDashInterviews } from './dashboard.js';
 import {
   openDrawer, closeDrawer, loadDrawerVacancies, updateDrawerCandidacyStage,
   loadDrawerTimeline, loadDrawerReminders, drawerAddReminder, drawerDoneReminder,
   loadDrawerComments, drawerAddComment, drawerEdit, drawerOpenComments,
   drawerTogglePin, drawerSetStatus, drawerDelete,
+  loadDrawerInterviews, drawerAddInterview, drawerInterviewDone, drawerInterviewCancel,
 } from './drawer.js';
 import {
   loadReminders, setReminderSort, reRenderReminders, openReminderModal,
   saveReminder, toggleReminder, deleteReminder,
 } from './reminders.js';
-import { openEmailModal, confirmSendEmail } from './email.js';
+import { openEmailModal, confirmSendEmail, applyEmailTemplateFromSel } from './email.js';
 import { openCommentsModal, loadComments, addComment, openHistoryModal } from './comments.js';
 import { openMergeModal, renderMergeList, selectMergeCandidate, confirmMerge } from './merge.js';
 import { openTemplatesModal, saveTemplate, deleteTemplate, copyTemplate } from './templates.js';
+import {
+  switchTemplateTab, loadEmailTemplates, saveEmailTemplate, deleteEmailTemplate,
+  previewEmailTemplate, useEmailTemplate, loadEmailTemplateDropdown,
+} from './email_templates.js';
+import { startRealtime, stopRealtime } from './realtime.js';
 
 // ── Service Worker ─────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
@@ -56,6 +62,12 @@ window._showView = showView;
 // ── After sync: reload candidates and reminders ────────────────────
 window._loadCandidatesAfterSync = loadCandidates;
 window._loadRemindersAfterSync  = loadReminders;
+
+// ── Realtime reload hooks ──────────────────────────────────────────
+window._reloadDashboard        = loadDashboard;
+window._reloadVacancies        = loadVacancies;
+window._reloadKanban           = loadKanban;
+window.loadEmailTemplateDropdown = loadEmailTemplateDropdown;
 
 // ── Assign all functions to window for onclick= handlers ──────────
 Object.assign(window, {
@@ -84,20 +96,21 @@ Object.assign(window, {
   exportKanbanCSV,
 
   // Dashboard
-  loadDashboard,
+  loadDashboard, filterFunnelByVacancy, loadDashInterviews,
 
   // Drawer
   openDrawer, closeDrawer, loadDrawerVacancies, updateDrawerCandidacyStage,
   loadDrawerTimeline, loadDrawerReminders, drawerAddReminder, drawerDoneReminder,
   loadDrawerComments, drawerAddComment, drawerEdit, drawerOpenComments,
   drawerTogglePin, drawerSetStatus, drawerDelete,
+  loadDrawerInterviews, drawerAddInterview, drawerInterviewDone, drawerInterviewCancel,
 
   // Reminders
   loadReminders, setReminderSort, reRenderReminders, openReminderModal,
   saveReminder, toggleReminder, deleteReminder,
 
   // Email
-  openEmailModal, confirmSendEmail,
+  openEmailModal, confirmSendEmail, applyEmailTemplateFromSel,
 
   // Comments
   openCommentsModal, loadComments, addComment, openHistoryModal,
@@ -105,8 +118,12 @@ Object.assign(window, {
   // Merge
   openMergeModal, renderMergeList, selectMergeCandidate, confirmMerge,
 
-  // Templates
+  // Templates (message)
   openTemplatesModal, saveTemplate, deleteTemplate, copyTemplate,
+
+  // Email templates
+  switchTemplateTab, loadEmailTemplates, saveEmailTemplate, deleteEmailTemplate,
+  previewEmailTemplate, useEmailTemplate, loadEmailTemplateDropdown,
 
   // Offline sync
   syncPendingOps,
@@ -130,6 +147,7 @@ async function init() {
     S.currentUser = session.user;
     await loadProfile();
     showApp();
+    startRealtime();
   }
 
   sb.auth.onAuthStateChange(async (event, session) => {
@@ -137,8 +155,10 @@ async function init() {
       S.currentUser = session.user;
       await loadProfile();
       showApp();
+      startRealtime();
     }
     if (event === 'SIGNED_OUT') {
+      stopRealtime();
       S.currentUser = S.currentProfile = null;
     }
   });

@@ -1,6 +1,6 @@
 import { sb, STAGES, STAGE_LABELS } from './config.js';
 import { S } from './state.js';
-import { esc, fmtDay, toast } from './utils.js';
+import { esc, fmtDay, fmtDate, toast } from './utils.js';
 import { isOnline, LS, cacheGet } from './offline.js';
 import { updateReminderBadge } from './reminders.js';
 
@@ -79,6 +79,12 @@ export async function loadDashboard() {
     .order('due_date', { ascending: true, nullsFirst: false })
     .limit(6);
   renderDashReminders(dashRems || []);
+
+  // Populate vacancy selector for funnel filter
+  _populateFunnelSelector(allVacs || []);
+
+  // Load interview calendar
+  await loadDashInterviews();
 }
 
 export function drawStagesChart(counts) {
@@ -161,4 +167,120 @@ export function renderDashReminders(list) {
       </span>
     </div>`;
   }).join('');
+}
+
+// ── Item 13: Funnel per vacancy ───────────────────────────────────
+function _populateFunnelSelector(vacs) {
+  const sel = document.getElementById('funnel-vacancy-sel');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Все вакансии</option>' +
+    vacs.map(v => `<option value="${v.id}" ${current===v.id?'selected':''}>${esc(v.title||'Вакансия')}</option>`).join('');
+}
+
+export async function filterFunnelByVacancy(vacId) {
+  if (!S.currentUser) return;
+
+  const stageCounts = Object.fromEntries(STAGES.map(s => [s, 0]));
+
+  if (!vacId) {
+    // All vacancies — rebuild from S.allCandidates pipeline_stage
+    S.allCandidates.forEach(c => {
+      if (c.pipeline_stage in stageCounts) stageCounts[c.pipeline_stage]++;
+    });
+    drawStagesChart(stageCounts);
+    return;
+  }
+
+  const { data: ccies } = await sb.from('candidacies')
+    .select('current_stage')
+    .eq('vacancy_id', vacId);
+
+  (ccies || []).forEach(c => {
+    if (c.current_stage in stageCounts) stageCounts[c.current_stage]++;
+  });
+  drawStagesChart(stageCounts);
+}
+
+// ── Item 11: Interview calendar ───────────────────────────────────
+const INT_FORMAT = { online: '💻', office: '🏢', phone: '📞' };
+const DAY_NAMES  = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+export async function loadDashInterviews() {
+  const el = document.getElementById('dash-interviews');
+  if (!el) return;
+
+  if (!isOnline) {
+    el.innerHTML = '<p class="text-xs text-slate-400">Недоступно офлайн</p>';
+    return;
+  }
+
+  // Mon–Sun of current week
+  const now  = new Date();
+  const dow  = (now.getDay() + 6) % 7; // 0=Mon
+  const mon  = new Date(now); mon.setHours(0,0,0,0); mon.setDate(now.getDate() - dow);
+  const sun  = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23,59,59,999);
+
+  const weekLabel = mon.toLocaleDateString('ru-RU',{day:'numeric',month:'long'}) +
+    ' — ' + sun.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
+  const wl = document.getElementById('dash-int-week');
+  if (wl) wl.textContent = weekLabel;
+
+  const { data: ivs } = await sb.from('interviews')
+    .select('*, candidates(full_name), vacancies(title)')
+    .eq('recruiter_id', S.currentUser.id)
+    .gte('scheduled_at', mon.toISOString())
+    .lte('scheduled_at', sun.toISOString())
+    .neq('status', 'cancelled')
+    .order('scheduled_at', { ascending: true });
+
+  _renderDashCalendar(el, ivs || [], mon);
+}
+
+function _renderDashCalendar(el, ivs, mon) {
+  // Build 7-day grid
+  const days = Array.from({length: 7}, (_, i) => {
+    const d = new Date(mon); d.setDate(mon.getDate() + i);
+    return d;
+  });
+
+  const byDay = {};
+  ivs.forEach(iv => {
+    const key = new Date(iv.scheduled_at).toDateString();
+    (byDay[key] ||= []).push(iv);
+  });
+
+  if (!ivs.length) {
+    el.innerHTML = `<p class="text-slate-400 text-sm">На этой неделе собеседований нет 🎉</p>`;
+    return;
+  }
+
+  const todayStr = new Date().toDateString();
+  el.innerHTML = `<div class="grid grid-cols-7 gap-1.5 min-w-[500px]">
+    ${days.map(d => {
+      const key    = d.toDateString();
+      const events = byDay[key] || [];
+      const isToday = key === todayStr;
+      const dayNum = d.getDate();
+      const dayName = DAY_NAMES[d.getDay()];
+      return `<div class="flex flex-col ${isToday ? 'bg-indigo-50 rounded-xl' : ''} p-1.5 min-h-[80px]">
+        <div class="text-center mb-1">
+          <span class="text-xs font-semibold ${isToday ? 'text-indigo-700' : 'text-slate-500'}">${dayName}</span>
+          <div class="text-xs ${isToday ? 'text-indigo-700 font-bold' : 'text-slate-400'}">${dayNum}</div>
+        </div>
+        ${events.map(iv => {
+          const time = new Date(iv.scheduled_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+          const fmt  = INT_FORMAT[iv.format] || '📅';
+          const name = iv.candidates?.full_name?.split(' ')[0] || '—';
+          return `<div class="text-xs bg-indigo-100 text-indigo-800 rounded-lg px-1.5 py-1 mb-1 leading-tight
+            cursor-pointer hover:bg-indigo-200 transition"
+            title="${esc((iv.candidates?.full_name||'')+' · '+(iv.vacancies?.title||'')+' · '+(iv.location||''))}"
+            onclick="openDrawer('${iv.candidate_id}')">
+            <div class="font-semibold">${time} ${fmt}</div>
+            <div class="truncate opacity-80">${esc(name)}</div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }).join('')}
+  </div>`;
 }
