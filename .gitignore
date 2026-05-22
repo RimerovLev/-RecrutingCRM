@@ -6,6 +6,7 @@ __pycache__/
 
 # Секреты фронта (ключи Supabase)
 js/config.local.js
+.env
 
 # LibreOffice lock files
 .~lock.*
@@ -13,3 +14,8 @@ js/config.local.js
 # Excel temp
 *.xlsx#
 *#
+
+# Vite / Node
+node_modules/
+dist/
+.vite/
