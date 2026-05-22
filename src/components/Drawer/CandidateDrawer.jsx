@@ -3,6 +3,7 @@ import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useCanWrite } from '@/hooks/useCanWrite';
 import { STAGES, STAGE_LABELS, STAGE_COLORS, STATUS_BADGE } from '@/lib/config';
+import { isMissingTableError } from '@/lib/apiErrors';
 
 function fmtDate(d) {
   if (!d) return '—';
@@ -107,9 +108,9 @@ export default function CandidateDrawer({ onReload }) {
     setTimeline(events);
 
     // Interviews
-    const { data: intData } = await sb.from('interviews')
+    const { data: intData, error: intErr } = await sb.from('interviews')
       .select('*').eq('candidate_id', drawerCandidateId).order('scheduled_at', { ascending: false });
-    setInterviews(intData || []);
+      setInterviews(intErr && isMissingTableError(intErr, 'interviews') ? [] : (intData || []));
   }, [drawerCandidateId, currentUser]);
 
   useEffect(() => { loadAll(); }, [loadAll]);

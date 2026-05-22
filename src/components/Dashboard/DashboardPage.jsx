@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { STAGES, STAGE_LABELS } from '@/lib/config';
+import { isMissingTableError } from '@/lib/apiErrors';
 
 function fmtDay(d) {
   if (!d) return '—';
@@ -136,14 +137,18 @@ export default function DashboardPage() {
       mon.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) + ' — ' +
       sun.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
     );
-    const { data: ivs } = await sb.from('interviews')
+    const { data: ivs, error: ivErr } = await sb.from('interviews')
       .select('*, candidates(full_name)')
       .eq('recruiter_id', currentUser.id)
       .gte('scheduled_at', mon.toISOString())
       .lte('scheduled_at', sun.toISOString())
       .neq('status', 'cancelled')
       .order('scheduled_at', { ascending: true });
-    setInterviews(ivs || []);
+      if (ivErr && isMissingTableError(ivErr, 'interviews')) {
+        setInterviews([]);
+      } else {
+        setInterviews(ivs || []);
+      }
   }, [currentUser?.id]);
 
   useEffect(() => { if (currentUser) load(); }, [load]);
