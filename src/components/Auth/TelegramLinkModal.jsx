@@ -14,7 +14,7 @@ function randomCode(len = 6) {
 window.__openTelegramLink = null;
 
 export default function TelegramLinkModal() {
-  const currentUser = useStore(s => s.currentUser);
+  const currentUserId = useStore(s => s.currentUserId);
   const addToast    = useStore(s => s.addToast);
 
   const [open, setOpen]       = useState(false);
@@ -36,11 +36,11 @@ export default function TelegramLinkModal() {
   };
 
   const generate = async () => {
-    if (!currentUser) return;
+    if (!currentUserId) return;
     const c = randomCode(6);
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
     const { error } = await sb.from('link_codes').insert({
-      code: c, recruiter_id: currentUser.id, expires_at: expiresAt, used: false,
+      code: c, recruiter_id: currentUserId, expires_at: expiresAt, used: false,
     });
     if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
     setCode(c);

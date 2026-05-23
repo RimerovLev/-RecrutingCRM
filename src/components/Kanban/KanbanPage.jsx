@@ -13,7 +13,7 @@ function money(n) {
 export default function KanbanPage() {
   const currentVacId    = useStore(s => s.currentVacId);
   const currentVacTitle = useStore(s => s.currentVacTitle);
-  const currentUser     = useStore(s => s.currentUser);
+  const currentUserId   = useStore(s => s.currentUserId);
   const allCandidates   = useStore(s => s.allCandidates);
   const addToast        = useStore(s => s.addToast);
   const setActiveView   = useStore(s => s.setActiveView);
@@ -35,7 +35,7 @@ export default function KanbanPage() {
     setItems(data || []);
   }, [currentVacId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [currentVacId]);
 
   const moveStage = async (candidacyId, fromStage, toStage) => {
     if (!canWrite) { addToast('Недостаточно прав', 'err'); return; }
@@ -43,7 +43,7 @@ export default function KanbanPage() {
     if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
     await sb.from('stage_history').insert({
       candidacy_id: candidacyId, from_stage: fromStage,
-      to_stage: toStage, changed_by: currentUser.id,
+      to_stage: toStage, changed_by: currentUserId,
     });
     addToast(`${STAGE_LABELS[fromStage]||fromStage} → ${STAGE_LABELS[toStage]||toStage}`);
     load();

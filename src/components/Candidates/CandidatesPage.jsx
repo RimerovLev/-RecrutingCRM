@@ -28,7 +28,7 @@ const EMPTY_CAND = {
 export default function CandidatesPage() {
   const allCandidates    = useStore(s => s.allCandidates);
   const candidatesTotal  = useStore(s => s.candidatesTotal);
-  const candidatesOffset = useStore(s => s.candidatesOffset);
+  const candidatesOffset = useStore(s => s.candidatesOffset); // for UI only — NOT in load deps
   const setAllCandidates = useStore(s => s.setAllCandidates);
   const appendCandidates = useStore(s => s.appendCandidates);
   const searchQ          = useStore(s => s.searchQ);
@@ -42,7 +42,7 @@ export default function CandidatesPage() {
   const clearSelectedIds = useStore(s => s.clearSelectedIds);
   const allVacancies     = useStore(s => s.allVacancies);
   const setAllVacancies  = useStore(s => s.setAllVacancies);
-  const currentUser      = useStore(s => s.currentUser);
+  const currentUserId    = useStore(s => s.currentUserId);
   const drawerOpen       = useStore(s => s.drawerOpen);
   const openDrawer       = useStore(s => s.openDrawer);
   const addToast         = useStore(s => s.addToast);
@@ -73,10 +73,10 @@ export default function CandidatesPage() {
 
   const loadVacancyOptions = useCallback(async () => {
     const { data } = await sb.from('vacancies')
-      .select('id, title').eq('recruiter_id', currentUser.id).order('title');
+      .select('id, title').eq('recruiter_id', currentUserId).order('title');
     setVacancyOptions(data || []);
     if (!allVacancies.length) setAllVacancies(data || []);
-  }, [currentUser?.id]);
+  }, [currentUserId]);
 
   const load = useCallback(async (append = false, overrideQ = null) => {
     const q = overrideQ ?? searchQ;
@@ -84,7 +84,7 @@ export default function CandidatesPage() {
 
     let query = sb.from('candidates')
       .select('*', { count: 'exact' })
-      .eq('recruiter_id', currentUser.id)
+      .eq('recruiter_id', currentUserId)
       .order('created_at', { ascending: false });
 
     if (isSearch) {
@@ -96,20 +96,21 @@ export default function CandidatesPage() {
         `experience.ilike.%${escaped}%,contact_status.ilike.%${escaped}%`
       ).limit(500);
     } else {
+      const candidatesOffset = useStore.getState().candidatesOffset;
       const offset = append ? candidatesOffset : 0;
       query = query.range(offset, offset + PAGE_SIZE - 1);
     }
 
     const { data, error, count } = await query;
     if (error) {
-      const cached = cacheGet(LS.candidates + '_' + currentUser.id);
+      const cached = cacheGet(LS.candidates + '_' + currentUserId);
       if (cached) { setAllCandidates(cached, cached.length, cached.length); addToast('📴 Кэшированные данные', 'warn'); }
       else { addToast('Ошибка загрузки кандидатов', 'err'); return; }
     } else {
       const list = data || [];
-      if (!isSearch) cacheSet(LS.candidates + '_' + currentUser.id, list);
+      if (!isSearch) cacheSet(LS.candidates + '_' + currentUserId, list);
       if (append) {
-        appendCandidates(list, count ?? 0, (candidatesOffset + list.length));
+        appendCandidates(list, count ?? 0, (useStore.getState().candidatesOffset + list.length));
       } else {
         setAllCandidates(list, count ?? list.length, list.length);
       }
@@ -129,16 +130,16 @@ export default function CandidatesPage() {
           _vacancyIds: (map[c.id] || []).map(cc => cc.vacancy_id),
         }));
         if (append) {
-          appendCandidates(enriched, count ?? 0, candidatesOffset + enriched.length);
+          appendCandidates(enriched, count ?? 0, useStore.getState().candidatesOffset + enriched.length);
         } else {
           setAllCandidates(enriched, count ?? enriched.length, enriched.length);
         }
       }
     }
     loadVacancyOptions();
-  }, [currentUser?.id, searchQ, candidatesOffset]);
+  }, [currentUserId, searchQ]);
 
-  useEffect(() => { if (currentUser) load(); }, [currentUser?.id]);
+  useEffect(() => { if (currentUserId) load(); }, [currentUserId]);
 
   const handleSearchChange = (e) => {
     const val = e.target.value;
@@ -228,7 +229,7 @@ export default function CandidatesPage() {
       ({ error } = await sb.from('candidates').update(payload).eq('id', editId));
       savedId = editId;
     } else {
-      payload.recruiter_id = currentUser.id;
+      payload.recruiter_id = currentUserId;
       const { data: newCand, error: ie } = await sb.from('candidates').insert(payload).select().single();
       error = ie; savedId = newCand?.id;
     }

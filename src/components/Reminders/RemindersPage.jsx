@@ -7,11 +7,17 @@ import Modal from '@/components/common/Modal';
 
 function fmtDay(d) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('ru-RU');
+  const dt = new Date(d);
+  // Если в строке есть время (не полночь) — показываем и время
+  const hasTime = d.includes('T') && !d.endsWith('T00:00:00');
+  if (hasTime) {
+    return dt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+  return dt.toLocaleDateString('ru-RU');
 }
 
 export default function RemindersPage() {
-  const currentUser = useStore(s => s.currentUser);
+  const currentUserId = useStore(s => s.currentUserId);
   const addToast    = useStore(s => s.addToast);
   const canWrite    = useCanWrite();
 
@@ -26,18 +32,18 @@ export default function RemindersPage() {
   const load = useCallback(async () => {
     const { data, error } = await sb.from('reminders')
       .select('*, candidates(full_name)')
-      .eq('recruiter_id', currentUser.id)
+      .eq('recruiter_id', currentUserId)
       .order('created_at', { ascending: true });
     if (error) {
-      const cached = cacheGet(LS.reminders + '_' + currentUser.id) || [];
+      const cached = cacheGet(LS.reminders + '_' + currentUserId) || [];
       setReminders(cached);
     } else {
-      cacheSet(LS.reminders + '_' + currentUser.id, data || []);
+      cacheSet(LS.reminders + '_' + currentUserId, data || []);
       setReminders(data || []);
     }
-  }, [currentUser?.id]);
+  }, [currentUserId]);
 
-  useEffect(() => { if (currentUser) load(); }, [load]);
+  useEffect(() => { if (currentUserId) load(); }, [currentUserId]);
 
   const displayList = (() => {
     let list = hideDone ? reminders.filter(r => !r.is_done) : [...reminders];
@@ -56,11 +62,17 @@ export default function RemindersPage() {
     e.preventDefault();
     if (!canWrite) { addToast('Недостаточно прав', 'err'); return; }
     if (!remNote.trim()) { addToast('Укажи текст напоминания', 'err'); return; }
+
+    // Объединяем дату и время в один timestamp, если оба заполнены
+    let dueDate = null;
+    if (remDate) {
+      dueDate = remTime ? `${remDate}T${remTime}:00` : remDate;
+    }
+
     const { error } = await sb.from('reminders').insert({
-      recruiter_id: currentUser.id,
+      recruiter_id: currentUserId,
       note: remNote.trim(),
-      due_date: remDate || null,
-      due_time: remTime || null,
+      due_date: dueDate,
       is_done: false,
     });
     if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }

@@ -1,17 +1,24 @@
 import { create } from 'zustand';
 
 export const useStore = create((set, get) => ({
-  // ── Auth ─────────────────────────────────────────────────────────
-  currentUser:    null,
-  currentProfile: null,
-  setCurrentUser:    (u) => set({ currentUser: u }),
-  setCurrentProfile: (p) => set({ currentProfile: p }),
+  // ── Auth (primitives only — no objects!) ──────────────────────
+  currentUserId:      null,
+  currentUserEmail:   null,
+  currentProfileRole: 'recruiter',
+  currentProfileName: null,
 
-  // NOTE: use useCanWrite() hook instead of calling this directly in render
-  canWrite: () => {
-    const role = get().currentProfile?.role || 'recruiter';
-    return role === 'recruiter' || role === 'admin';
-  },
+  setCurrentUser: (u) => set({
+    currentUserId:    u?.id    ?? null,
+    currentUserEmail: u?.email ?? null,
+  }),
+  setCurrentProfile: (p) => set({
+    currentProfileRole: p?.role      ?? 'recruiter',
+    currentProfileName: p?.full_name ?? null,
+  }),
+  clearAuth: () => set({
+    currentUserId: null, currentUserEmail: null,
+    currentProfileRole: 'recruiter', currentProfileName: null,
+  }),
 
   // ── Candidates ───────────────────────────────────────────────────
   allCandidates:        [],
@@ -24,23 +31,23 @@ export const useStore = create((set, get) => ({
   currentTags:          [],
   selectedIds:          new Set(),
 
-  setAllCandidates:    (list, total, offset) =>
-    set({ allCandidates: list, candidatesTotal: total, candidatesOffset: offset }),
-  appendCandidates:    (list, total, offset) =>
+  setAllCandidates:  (list, total, offset) =>
+    set({ allCandidates: list, candidatesTotal: total ?? list.length, candidatesOffset: offset ?? list.length }),
+  appendCandidates:  (list, total, offset) =>
     set(s => ({ allCandidates: [...s.allCandidates, ...list], candidatesTotal: total, candidatesOffset: offset })),
-  setSearchQ:          (q) => set({ searchQ: q, candidatesSearchMode: q.length > 0 }),
-  setSortField:        (f) => set(s => ({
+  setSearchQ:        (q) => set({ searchQ: q, candidatesSearchMode: q.length > 0 }),
+  setSortField:      (f) => set(s => ({
     sortField: f,
     sortDir: s.sortField === f ? -s.sortDir : 1,
   })),
-  setCurrentTags:      (tags) => set({ currentTags: tags }),
-  toggleSelectedId:    (id) => set(s => {
+  setCurrentTags:    (tags) => set({ currentTags: tags }),
+  toggleSelectedId:  (id) => set(s => {
     const next = new Set(s.selectedIds);
     next.has(id) ? next.delete(id) : next.add(id);
     return { selectedIds: next };
   }),
-  setSelectedIds:      (ids) => set({ selectedIds: new Set(ids) }),
-  clearSelectedIds:    () => set({ selectedIds: new Set() }),
+  setSelectedIds:    (ids) => set({ selectedIds: new Set(ids) }),
+  clearSelectedIds:  () => set({ selectedIds: new Set() }),
 
   // ── Vacancies ────────────────────────────────────────────────────
   allVacancies: [],
@@ -55,7 +62,7 @@ export const useStore = create((set, get) => ({
   allRemindersCache: [],
   reminderSortDir:   'asc',
   setReminders:      (list) => set({ allRemindersCache: list }),
-  setReminderSort:   (dir) => set({ reminderSortDir: dir }),
+  setReminderSort:   (dir)  => set({ reminderSortDir: dir }),
 
   // ── Drawer ───────────────────────────────────────────────────────
   drawerCandidateId: null,
@@ -64,18 +71,12 @@ export const useStore = create((set, get) => ({
   closeDrawer: ()   => set({ drawerCandidateId: null, drawerOpen: false }),
 
   // ── Email ────────────────────────────────────────────────────────
-  pendingEmailCandidate:     null,
-  pendingEmailTemplate:      null,
+  pendingEmailCandidateId:   null,
   emailModalOpen:            false,
   emailTemplatesCache:       [],
-  openEmailModal:   (candidate) => set({ pendingEmailCandidate: candidate, emailModalOpen: true }),
-  closeEmailModal:  ()          => set({ emailModalOpen: false, pendingEmailCandidate: null }),
-  setEmailTemplates: (list) => set({ emailTemplatesCache: list }),
-  setPendingEmailTemplate: (t) => set({ pendingEmailTemplate: t }),
-
-  // ── Templates (message) ──────────────────────────────────────────
-  templatesCache: [],
-  setTemplatesCache: (list) => set({ templatesCache: list }),
+  openEmailModal:    (candidateId) => set({ pendingEmailCandidateId: candidateId, emailModalOpen: true }),
+  closeEmailModal:   ()            => set({ emailModalOpen: false, pendingEmailCandidateId: null }),
+  setEmailTemplates: (list)        => set({ emailTemplatesCache: list }),
 
   // ── UI ───────────────────────────────────────────────────────────
   activeView: 'dashboard',

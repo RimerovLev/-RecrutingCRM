@@ -7,6 +7,12 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src') },
   },
+  server: {
+    headers: {
+      // Запрещаем браузеру кэшировать JS/CSS в dev — данные всегда свежие
+      'Cache-Control': 'no-store',
+    },
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,

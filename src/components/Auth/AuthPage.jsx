@@ -15,6 +15,7 @@ export default function AuthPage() {
   const [regName, setRegName]         = useState('');
   const [regEmail, setRegEmail]       = useState('');
   const [regPassword, setRegPassword] = useState('');
+  const [regAdminCode, setRegAdminCode] = useState('');
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -30,7 +31,7 @@ export default function AuthPage() {
     const { error } = await sb.auth.signUp({
       email: regEmail,
       password: regPassword,
-      options: { data: { full_name: regName } },
+      options: { data: { full_name: regName, admin_code: regAdminCode.trim() } },
     });
     setLoading(false);
     if (error) {
@@ -129,6 +130,17 @@ export default function AuthPage() {
                   placeholder="Минимум 6 символов"
                   required
                   minLength={6}
+                />
+              </div>
+              <div>
+                <label className="form-label">Код администратора <span className="text-slate-400 font-normal">(необязательно)</span></label>
+                <input
+                  type="password"
+                  value={regAdminCode}
+                  onChange={e => setRegAdminCode(e.target.value)}
+                  className="input-field"
+                  placeholder="Если есть — введи для получения прав админа"
+                  autoComplete="off"
                 />
               </div>
               <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-2.5">

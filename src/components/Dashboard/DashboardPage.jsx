@@ -76,7 +76,7 @@ function FunnelChart({ stageCounts }) {
 }
 
 export default function DashboardPage() {
-  const currentUser   = useStore(s => s.currentUser);
+  const currentUserId = useStore(s => s.currentUserId);
   const addToast      = useStore(s => s.addToast);
   const setActiveView = useStore(s => s.setActiveView);
   const allCandidates = useStore(s => s.allCandidates);
@@ -91,15 +91,15 @@ export default function DashboardPage() {
   const [weekStart, setWeekStart] = useState(null);
 
   const load = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUserId) return;
 
-    const { data: myVacs } = await sb.from('vacancies').select('id, status, title').eq('recruiter_id', currentUser.id);
+    const { data: myVacs } = await sb.from('vacancies').select('id, status, title').eq('recruiter_id', currentUserId);
     const vacIds = (myVacs || []).map(v => v.id);
     setVacancies(myVacs || []);
 
     const [candsRes, remsRes, cciesRes, histRes] = await Promise.all([
-      sb.from('candidates').select('id', { count: 'exact' }).eq('recruiter_id', currentUser.id),
-      sb.from('reminders').select('id').eq('recruiter_id', currentUser.id).eq('is_done', false),
+      sb.from('candidates').select('id', { count: 'exact' }).eq('recruiter_id', currentUserId),
+      sb.from('reminders').select('id').eq('recruiter_id', currentUserId).eq('is_done', false),
       vacIds.length
         ? sb.from('candidacies').select('current_stage').in('vacancy_id', vacIds)
         : Promise.resolve({ data: [] }),
@@ -123,7 +123,7 @@ export default function DashboardPage() {
 
     const { data: remList } = await sb.from('reminders')
       .select('*, candidates(full_name)')
-      .eq('recruiter_id', currentUser.id).eq('is_done', false)
+      .eq('recruiter_id', currentUserId).eq('is_done', false)
       .order('due_date', { ascending: true, nullsFirst: false }).limit(6);
     setDashRems(remList || []);
 
@@ -139,7 +139,7 @@ export default function DashboardPage() {
     );
     const { data: ivs, error: ivErr } = await sb.from('interviews')
       .select('*, candidates(full_name)')
-      .eq('recruiter_id', currentUser.id)
+      .eq('recruiter_id', currentUserId)
       .gte('scheduled_at', mon.toISOString())
       .lte('scheduled_at', sun.toISOString())
       .neq('status', 'cancelled')
@@ -149,16 +149,16 @@ export default function DashboardPage() {
       } else {
         setInterviews(ivs || []);
       }
-  }, [currentUser?.id]);
+  }, [currentUserId]);
 
-  useEffect(() => { if (currentUser) load(); }, [load]);
+  useEffect(() => { if (currentUserId) load(); }, [currentUserId]);
 
   const filterFunnel = async (vacId) => {
     setFunnelVacId(vacId);
     const counts = Object.fromEntries(STAGES.map(s => [s, 0]));
     if (!vacId) {
       allCandidates.forEach(c => { if (c.pipeline_stage in counts) counts[c.pipeline_stage]++; });
-      const { data: myVacs } = await sb.from('vacancies').select('id').eq('recruiter_id', currentUser.id);
+      const { data: myVacs } = await sb.from('vacancies').select('id').eq('recruiter_id', currentUserId);
       const vacIds = (myVacs || []).map(v => v.id);
       if (vacIds.length) {
         const { data } = await sb.from('candidacies').select('current_stage').in('vacancy_id', vacIds);

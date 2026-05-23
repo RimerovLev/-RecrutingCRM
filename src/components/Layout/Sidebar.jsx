@@ -1,28 +1,36 @@
 import { useStore } from '@/store';
 
 const NAV = [
-  { view: 'dashboard',  icon: '📊', label: 'Дашборд' },
-  { view: 'candidates', icon: '👤', label: 'Кандидаты' },
-  { view: 'vacancies',  icon: '💼', label: 'Вакансии' },
-  { view: 'reminders',  icon: '🔔', label: 'Напоминания' },
+  { view: 'dashboard',   icon: '📊', label: 'Дашборд' },
+  { view: 'candidates',  icon: '👤', label: 'Кандидаты' },
+  { view: 'vacancies',   icon: '💼', label: 'Вакансии' },
+  { view: 'interviews',  icon: '🤝', label: 'Интервью' },
+  { view: 'reminders',   icon: '🔔', label: 'Напоминания' },
+];
+
+const ADMIN_NAV = [
+  { view: 'admin', icon: '⚡', label: 'Администрирование' },
 ];
 
 export default function Sidebar() {
   const activeView    = useStore(s => s.activeView);
   const setActiveView = useStore(s => s.setActiveView);
-  const profile       = useStore(s => s.currentProfile);
-  const user          = useStore(s => s.currentUser);
-  const addToast      = useStore(s => s.addToast);
+  const currentProfileName = useStore(s => s.currentProfileName);
+  const currentUserEmail   = useStore(s => s.currentUserEmail);
+  const currentProfileRole = useStore(s => s.currentProfileRole);
+  const clearAuth          = useStore(s => s.clearAuth);
+  const addToast           = useStore(s => s.addToast);
 
   const handleLogout = async () => {
     const { sb } = await import('@/lib/supabase');
     await sb.auth.signOut();
-    useStore.setState({ currentUser: null, currentProfile: null });
+    clearAuth();
     addToast('Выход выполнен');
   };
 
-  const displayName = profile?.full_name || user?.email || '';
-  const role        = profile?.role || 'recruiter';
+  const displayName = currentProfileName || currentUserEmail || '';
+  const role        = currentProfileRole;
+  const isAdmin     = role === 'admin';
 
   return (
     <aside className="hidden md:flex flex-col w-60 bg-indigo-700 text-white shrink-0">
@@ -47,6 +55,26 @@ export default function Sidebar() {
             <span>{label}</span>
           </button>
         ))}
+
+        {/* Admin section */}
+        {isAdmin && (
+          <>
+            <div className="my-2 border-t border-indigo-600" />
+            <p className="text-indigo-400 text-xs font-bold uppercase tracking-widest px-3 mb-1">Управление</p>
+            {ADMIN_NAV.map(({ view, icon, label }) => (
+              <button
+                key={view}
+                onClick={() => setActiveView(view)}
+                className={`nav-btn flex items-center gap-3 w-full text-left px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  activeView === view ? 'active' : 'hover:bg-white/10'
+                }`}
+              >
+                <span>{icon}</span>
+                <span>{label}</span>
+              </button>
+            ))}
+          </>
+        )}
       </nav>
 
       {/* User */}

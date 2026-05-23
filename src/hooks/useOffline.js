@@ -1,15 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 
-const LS = {
+export const LS = {
   candidates: 'crm_cache_candidates',
   vacancies:  'crm_cache_vacancies',
   reminders:  'crm_cache_reminders',
   pendingOps: 'crm_pending_ops',
 };
-
-export { LS };
 
 export function cacheSet(key, data) {
   try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {}
@@ -57,10 +55,12 @@ export async function syncPendingOps(toast) {
 
 export function useOffline() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const addToast = useStore(s => s.addToast);
+  // Use ref so the effect never needs to re-run when addToast changes
+  const toastRef = useRef(null);
+  toastRef.current = useStore.getState().addToast;
 
   useEffect(() => {
-    const goOnline  = () => { setIsOnline(true);  syncPendingOps(addToast); };
+    const goOnline  = () => { setIsOnline(true);  syncPendingOps(toastRef.current); };
     const goOffline = () => { setIsOnline(false); };
     window.addEventListener('online',  goOnline);
     window.addEventListener('offline', goOffline);
@@ -68,7 +68,7 @@ export function useOffline() {
       window.removeEventListener('online',  goOnline);
       window.removeEventListener('offline', goOffline);
     };
-  }, [addToast]);
+  }, []); // empty deps — stable forever
 
   return isOnline;
 }

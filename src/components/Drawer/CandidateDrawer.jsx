@@ -17,8 +17,8 @@ function fmtDay(d) {
 export default function CandidateDrawer({ onReload }) {
   const drawerCandidateId = useStore(s => s.drawerCandidateId);
   const closeDrawer       = useStore(s => s.closeDrawer);
-  const allCandidates     = useStore(s => s.allCandidates);
-  const currentUser       = useStore(s => s.currentUser);
+  // allCandidates read via getState() inside loadAll to avoid subscription
+  const currentUserId     = useStore(s => s.currentUserId);
   const addToast          = useStore(s => s.addToast);
   const canWrite          = useCanWrite();
   const [visible, setVisible] = useState(false);
@@ -62,10 +62,10 @@ export default function CandidateDrawer({ onReload }) {
   };
 
   const loadAll = useCallback(async () => {
-    if (!drawerCandidateId || !currentUser) return;
+    if (!drawerCandidateId || !currentUserId) return;
 
     // Try local store first
-    const local = allCandidates.find(c => c.id === drawerCandidateId);
+    const local = useStore.getState().allCandidates.find(c => c.id === drawerCandidateId);
     if (local) setCandidate(local);
 
     // Load fresh from DB
@@ -111,9 +111,9 @@ export default function CandidateDrawer({ onReload }) {
     const { data: intData, error: intErr } = await sb.from('interviews')
       .select('*').eq('candidate_id', drawerCandidateId).order('scheduled_at', { ascending: false });
       setInterviews(intErr && isMissingTableError(intErr, 'interviews') ? [] : (intData || []));
-  }, [drawerCandidateId, currentUser]);
+  }, [drawerCandidateId, currentUserId]);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => { loadAll(); }, [drawerCandidateId, currentUserId]);
 
   const updateStage = async (candidacyId, newStage) => {
     const prev = candidacies.find(cc => cc.id === candidacyId);
@@ -121,7 +121,7 @@ export default function CandidateDrawer({ onReload }) {
     if (prev && prev.current_stage !== newStage) {
       await sb.from('stage_history').insert({
         candidacy_id: candidacyId, from_stage: prev.current_stage,
-        to_stage: newStage, changed_by: currentUser.id,
+        to_stage: newStage, changed_by: currentUserId,
       });
     }
     addToast(`Этап → ${STAGE_LABELS[newStage] || newStage} ✓`);
@@ -133,7 +133,7 @@ export default function CandidateDrawer({ onReload }) {
     if (!remNote.trim()) return;
     const noteText = remTime && remDate ? `${remNote} (в ${remTime})` : remNote;
     const { error } = await sb.from('reminders').insert({
-      recruiter_id: currentUser.id, candidate_id: drawerCandidateId,
+      recruiter_id: currentUserId, candidate_id: drawerCandidateId,
       note: noteText, due_date: remDate || null, is_done: false,
     });
     if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
@@ -151,7 +151,7 @@ export default function CandidateDrawer({ onReload }) {
     e.preventDefault();
     if (!comment.trim()) return;
     const { error } = await sb.from('comments').insert({
-      candidate_id: drawerCandidateId, recruiter_id: currentUser.id, content: comment.trim(),
+      candidate_id: drawerCandidateId, recruiter_id: currentUserId, content: comment.trim(),
     });
     if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
     addToast('Комментарий добавлен ✓');
@@ -164,8 +164,8 @@ export default function CandidateDrawer({ onReload }) {
     if (!intDate || !intTime) { addToast('Укажи дату и время', 'err'); return; }
     const scheduledAt = `${intDate}T${intTime}:00`;
     const { error } = await sb.from('interviews').insert({
-      candidate_id: drawerCandidateId, recruiter_id: currentUser.id,
-      scheduled_at: scheduledAt, interview_type: intType,
+      candidate_id: drawerCandidateId, recruiter_id: currentUserId,
+      scheduled_at: scheduledAt, format: intType,
       notes: intNote.trim() || null, status: 'scheduled',
     });
     if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
@@ -439,7 +439,7 @@ export default function CandidateDrawer({ onReload }) {
               {interviews.map(iv => (
                 <div key={iv.id} className={`card p-3 text-sm ${iv.status === 'done' ? 'opacity-60' : ''}`}>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold">{iv.interview_type === 'phone' ? '📞' : iv.interview_type === 'video' ? '🎥' : '🏢'} {new Date(iv.scheduled_at).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
+                    <span className="font-semibold">{iv.format === 'phone' ? '📞' : iv.format === 'online' ? '🎥' : '🏢'} {new Date(iv.scheduled_at).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${iv.status === 'done' ? 'bg-green-100 text-green-700' : iv.status === 'cancelled' ? 'bg-red-100 text-red-500' : 'bg-indigo-100 text-indigo-700'}`}>
                       {iv.status === 'done' ? 'Проведён' : iv.status === 'cancelled' ? 'Отменён' : 'Запланирован'}
                     </span>
@@ -469,7 +469,7 @@ export default function CandidateDrawer({ onReload }) {
                   </div>
                   <select className="input-field" value={intType} onChange={e => setIntType(e.target.value)}>
                     <option value="phone">📞 Звонок</option>
-                    <option value="video">🎥 Видео</option>
+                    <option value="online">🎥 Видео</option>
                     <option value="office">🏢 Офис</option>
                   </select>
                   <input className="input-field" placeholder="Заметка" value={intNote} onChange={e => setIntNote(e.target.value)} />

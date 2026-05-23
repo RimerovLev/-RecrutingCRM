@@ -1,5 +1,6 @@
 // Recruit CRM — Service Worker (Vite build)
-const CACHE_NAME = 'recruit-crm-v6';
+// __BUILD_TIME__ заменяется vite-plugin-pwa или берётся как дата деплоя
+const CACHE_NAME = 'recruit-crm-v7';
 
 self.addEventListener('install', () => self.skipWaiting());
 
