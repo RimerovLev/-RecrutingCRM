@@ -1,20 +1,24 @@
 import { useStore } from '@/store';
 
-const NAV = [
-  { view: 'dashboard',   icon: '📊', label: 'Дашборд' },
-  { view: 'candidates',  icon: '👤', label: 'Кандидаты' },
-  { view: 'vacancies',   icon: '💼', label: 'Вакансии' },
-  { view: 'interviews',  icon: '🤝', label: 'Интервью' },
-  { view: 'reminders',   icon: '🔔', label: 'Напоминания' },
+const NAV_MAIN = [
+  { view: 'dashboard',  icon: '▪', label: 'Дашборд' },
+  { view: 'candidates', icon: '▪', label: 'Кандидаты' },
+  { view: 'vacancies',  icon: '▪', label: 'Вакансии' },
+  { view: 'kanban',     icon: '▪', label: 'Пайплайн' },
+];
+const NAV_ACTIVITY = [
+  { view: 'interviews', icon: '▪', label: 'Интервью' },
+  { view: 'reminders',  icon: '▪', label: 'Напоминания' },
+];
+const NAV_ADMIN = [
+  { view: 'admin', icon: '▪', label: 'Администрирование' },
 ];
 
-const ADMIN_NAV = [
-  { view: 'admin', icon: '⚡', label: 'Администрирование' },
-];
+const ROLE_BADGE = { recruiter: null, viewer: 'viewer', admin: 'admin' };
 
 export default function Sidebar() {
-  const activeView    = useStore(s => s.activeView);
-  const setActiveView = useStore(s => s.setActiveView);
+  const activeView         = useStore(s => s.activeView);
+  const setActiveView      = useStore(s => s.setActiveView);
   const currentProfileName = useStore(s => s.currentProfileName);
   const currentUserEmail   = useStore(s => s.currentUserEmail);
   const currentProfileRole = useStore(s => s.currentProfileRole);
@@ -29,88 +33,145 @@ export default function Sidebar() {
   };
 
   const displayName = currentProfileName || currentUserEmail || '';
-  const role        = currentProfileRole;
-  const isAdmin     = role === 'admin';
+  const initials    = displayName.slice(0, 2).toUpperCase();
+  const isAdmin     = currentProfileRole === 'admin';
+
+  const NavItem = ({ view, label, badge }) => {
+    const active = activeView === view;
+    return (
+      <button
+        onClick={() => setActiveView(view)}
+        style={{
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: '100%',
+          padding: '9px 24px',
+          background: active ? 'rgba(255,255,255,0.06)' : 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          fontFamily: 'var(--font-sans)',
+          fontSize: '13px',
+          fontWeight: 400,
+          color: active ? '#fff' : 'rgba(255,255,255,0.5)',
+          textAlign: 'left',
+          transition: 'all 0.15s',
+        }}
+        onMouseEnter={e => { if (!active) { e.currentTarget.style.color = 'rgba(255,255,255,0.85)'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}}
+        onMouseLeave={e => { if (!active) { e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; e.currentTarget.style.background = 'transparent'; }}}
+      >
+        {/* Active left border */}
+        {active && (
+          <span style={{
+            position: 'absolute', left: 0, top: 4, bottom: 4,
+            width: 2, background: 'var(--accent)', borderRadius: '0 2px 2px 0',
+          }} />
+        )}
+        <span>{label}</span>
+        {badge != null && (
+          <span style={{
+            background: 'var(--accent)', color: '#fff',
+            fontSize: 9, fontWeight: 600, padding: '2px 6px',
+            borderRadius: 999, lineHeight: 1.4,
+          }}>{badge}</span>
+        )}
+      </button>
+    );
+  };
+
+  const SectionLabel = ({ children }) => (
+    <p style={{
+      padding: '12px 24px 6px',
+      fontSize: 9, letterSpacing: 3, textTransform: 'uppercase',
+      color: 'rgba(255,255,255,0.25)',
+      fontFamily: 'var(--font-sans)',
+    }}>{children}</p>
+  );
 
   return (
-    <aside className="hidden md:flex flex-col w-60 bg-indigo-700 text-white shrink-0">
+    <aside
+      className="hidden md:flex flex-col"
+      style={{
+        position: 'fixed', top: 0, left: 0, bottom: 0,
+        width: 220, background: 'var(--ink)',
+        zIndex: 40, borderRight: '1px solid rgba(255,255,255,0.06)',
+      }}
+    >
       {/* Logo */}
-      <div className="px-5 py-5 border-b border-indigo-600">
-        <h1 className="text-xl font-black tracking-tight">Recruit CRM</h1>
-        <p className="text-indigo-300 text-xs mt-0.5">Система управления подбором</p>
+      <div style={{ padding: '24px 24px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <h1 style={{
+          fontFamily: 'var(--font-serif)', fontSize: 22, fontWeight: 900,
+          color: '#fff', lineHeight: 1,
+        }}>Recruit CRM</h1>
+        <p style={{
+          fontSize: 10, letterSpacing: 3, textTransform: 'uppercase',
+          color: 'rgba(255,255,255,0.3)', marginTop: 4,
+        }}>CRM Platform</p>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-3 py-4 flex flex-col gap-1">
-        {NAV.map(({ view, icon, label }) => (
-          <button
-            key={view}
-            data-view={view}
-            onClick={() => setActiveView(view)}
-            className={`nav-btn flex items-center gap-3 w-full text-left px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-              activeView === view ? 'active' : 'hover:bg-white/10'
-            }`}
-          >
-            <span>{icon}</span>
-            <span>{label}</span>
-          </button>
+      {/* Navigation */}
+      <nav style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>
+        <SectionLabel>Основное</SectionLabel>
+        {NAV_MAIN.map(({ view, label }) => (
+          <NavItem key={view} view={view} label={label} />
         ))}
 
-        {/* Admin section */}
+        <SectionLabel>Активность</SectionLabel>
+        {NAV_ACTIVITY.map(({ view, label }) => (
+          <NavItem key={view} view={view} label={label} />
+        ))}
+
         {isAdmin && (
           <>
-            <div className="my-2 border-t border-indigo-600" />
-            <p className="text-indigo-400 text-xs font-bold uppercase tracking-widest px-3 mb-1">Управление</p>
-            {ADMIN_NAV.map(({ view, icon, label }) => (
-              <button
-                key={view}
-                onClick={() => setActiveView(view)}
-                className={`nav-btn flex items-center gap-3 w-full text-left px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  activeView === view ? 'active' : 'hover:bg-white/10'
-                }`}
-              >
-                <span>{icon}</span>
-                <span>{label}</span>
-              </button>
+            <SectionLabel>Управление</SectionLabel>
+            {NAV_ADMIN.map(({ view, label }) => (
+              <NavItem key={view} view={view} label={label} />
             ))}
           </>
         )}
       </nav>
 
-      {/* User */}
-      <div className="px-4 py-4 border-t border-indigo-600 space-y-2">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-sm">
-            {displayName.charAt(0).toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold truncate">{displayName}</p>
-            {(role === 'viewer' || role === 'admin') && (
-              <span className="text-xs text-indigo-300">
-                {role === 'viewer' ? '👁 viewer' : '⚡ admin'}
-              </span>
-            )}
+      {/* User block */}
+      <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '16px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          {/* Avatar */}
+          <div style={{
+            width: 32, height: 32, borderRadius: '50%',
+            background: 'linear-gradient(135deg, var(--accent), #b83410)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: '#fff',
+            flexShrink: 0,
+          }}>{initials}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: 500, truncate: true, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {displayName}
+            </p>
+            <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
+              {currentProfileRole}
+            </p>
           </div>
         </div>
 
-        {/* Realtime indicator */}
-        <div className="flex items-center gap-2 text-xs text-indigo-300">
-          <span id="realtime-dot" className="w-2 h-2 rounded-full inline-block" />
-          <span id="realtime-label">Connecting…</span>
+        {/* Realtime + actions */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span id="realtime-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'inline-block' }} />
+            <span id="realtime-label" style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>Connecting…</span>
+          </div>
+          <button
+            onClick={() => window.__openTelegramLink?.()}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'left', padding: 0, fontFamily: 'var(--font-sans)' }}
+            onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.7)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.3)'}
+          >Привязать Telegram</button>
+          <button
+            onClick={handleLogout}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'left', padding: 0, fontFamily: 'var(--font-sans)' }}
+            onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.7)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.3)'}
+          >Выйти →</button>
         </div>
-
-        <button
-          onClick={() => window.__openTelegramLink?.()}
-          className="w-full text-left text-xs text-indigo-300 hover:text-white transition-colors"
-        >
-          🤖 Привязать Telegram
-        </button>
-        <button
-          onClick={handleLogout}
-          className="w-full text-left text-xs text-indigo-300 hover:text-white transition-colors"
-        >
-          Выйти →
-        </button>
       </div>
     </aside>
   );

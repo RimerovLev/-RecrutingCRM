@@ -4,6 +4,7 @@ import { useStore } from '@/store';
 
 // Layout
 import Sidebar from '@/components/Layout/Sidebar';
+import Topbar from '@/components/Layout/Topbar';
 import MobileNav from '@/components/Layout/MobileNav';
 import OfflineBanner from '@/components/Layout/OfflineBanner';
 import { useOffline } from '@/hooks/useOffline';
@@ -130,12 +131,15 @@ export default function App() {
   };
 
   return (
-    <div className={`flex h-screen overflow-hidden bg-slate-50 ${!isOnline ? 'pt-10' : ''}`}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)' }}>
       <OfflineBanner />
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
-        {PAGE[activeView] || <DashboardPage />}
-      </main>
+      <div style={{ marginLeft: 220, flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <Topbar />
+        <main style={{ flex: 1, overflowY: 'auto' }}>
+          {PAGE[activeView] || <DashboardPage />}
+        </main>
+      </div>
       <MobileNav />
       <TelegramLinkModal />
       <ToastContainer />

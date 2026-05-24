@@ -4,73 +4,81 @@ import { useStore } from '@/store';
 import { STAGES, STAGE_LABELS } from '@/lib/config';
 import { isMissingTableError } from '@/lib/apiErrors';
 
+const DAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
 function fmtDay(d) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('ru-RU');
+  const dt = new Date(d);
+  const hasTime = d.includes('T') && !d.endsWith('T00:00:00');
+  if (hasTime) return dt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return dt.toLocaleDateString('ru-RU');
 }
-
-const DAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-const STAGE_BAR_COLORS = {
-  new:'#94a3b8', resume:'#3b82f6', phone:'#f59e0b',
-  interview:'#8b5cf6', offer:'#10b981', rejected:'#ef4444',
-};
 
 function calcAvgInterviewDays(history) {
   const byCcy = {};
   history.forEach(h => { (byCcy[h.candidacy_id] ||= []).push(h); });
   let total = 0, cnt = 0;
   Object.values(byCcy).forEach(evs => {
-    evs.sort((a,b) => new Date(a.changed_at) - new Date(b.changed_at));
+    evs.sort((a, b) => new Date(a.changed_at) - new Date(b.changed_at));
     let enterAt = null;
     for (const e of evs) {
       if (e.to_stage === 'interview') enterAt = new Date(e.changed_at);
-      else if (enterAt && e.from_stage === 'interview') {
-        total += (new Date(e.changed_at) - enterAt) / 86400000;
-        cnt++; enterAt = null;
-      }
+      else if (enterAt && e.from_stage === 'interview') { total += (new Date(e.changed_at) - enterAt) / 86400000; cnt++; enterAt = null; }
     }
   });
-  return cnt > 0 ? total / cnt : null;
+  return cnt > 0 ? Math.round(total / cnt) : null;
 }
 
-function FunnelChart({ stageCounts }) {
+// ── Metric Card ───────────────────────────────────────────────────
+function MetricCard({ label, value, sub, accentColor, delayClass, onClick }) {
+  return (
+    <div
+      className={`card fade-up ${delayClass}`}
+      onClick={onClick}
+      style={{ padding: '22px 24px', cursor: onClick ? 'pointer' : 'default', position: 'relative', overflow: 'hidden' }}
+    >
+      {/* Top accent line */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: accentColor, borderRadius: '2px 2px 0 0' }} />
+      <p style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12, fontFamily: 'var(--font-sans)' }}>{label}</p>
+      <p style={{ fontFamily: 'var(--font-serif)', fontSize: 36, fontWeight: 900, letterSpacing: -1, lineHeight: 1, color: 'var(--ink)' }}>{value}</p>
+      {sub && <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, fontFamily: 'var(--font-sans)' }}>{sub}</p>}
+    </div>
+  );
+}
+
+// ── Funnel Bar ────────────────────────────────────────────────────
+const STAGE_COLORS_NEW = {
+  new: '#64748b', resume: 'var(--accent2)', phone: 'var(--amber)',
+  interview: '#8b5cf6', offer: 'var(--green)', rejected: 'var(--accent)',
+};
+
+function FunnelBars({ stageCounts }) {
   const funnelStages = STAGES.filter(s => s !== 'rejected');
   const maxCount = Math.max(1, ...funnelStages.map(s => stageCounts[s] || 0));
-  const rejCount = stageCounts['rejected'] || 0;
-
   return (
-    <div className="space-y-2">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {funnelStages.map((stage, i) => {
         const count = stageCounts[stage] || 0;
-        const prev  = i > 0 ? (stageCounts[funnelStages[i-1]] || 0) : count;
-        const conv  = (i > 0 && prev > 0) ? Math.round(count / prev * 100) : null;
-        const barPct = Math.round(count / maxCount * 100);
+        const prev = i > 0 ? (stageCounts[funnelStages[i - 1]] || 0) : count;
+        const conv = i > 0 && prev > 0 ? Math.round(count / prev * 100) : null;
+        const pct = Math.round(count / maxCount * 100);
         return (
-          <div key={stage} className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 w-20 shrink-0 text-right">{STAGE_LABELS[stage]}</span>
-            <div className="flex-1 relative h-7 bg-slate-100 rounded-lg overflow-hidden">
-              <div className="h-full rounded-lg transition-all duration-500"
-                style={{ width: `${barPct}%`, background: STAGE_BAR_COLORS[stage] }} />
-              <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-700">
+          <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)', width: 70, textAlign: 'right', fontFamily: 'var(--font-sans)', flexShrink: 0 }}>
+              {STAGE_LABELS[stage]}
+            </span>
+            <div style={{ flex: 1, position: 'relative', height: 26, background: 'var(--bg)', borderRadius: 6, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${pct}%`, background: STAGE_COLORS_NEW[stage], borderRadius: 6, transition: 'width 0.5s ease' }} />
+              <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-sans)' }}>
                 {count}
               </span>
             </div>
-            <span className={`text-xs w-10 text-right shrink-0 text-slate-400 ${conv == null ? 'invisible' : ''}`}>
+            <span style={{ fontSize: 10, width: 32, textAlign: 'right', color: conv != null ? 'var(--muted)' : 'transparent', fontFamily: 'var(--font-sans)', flexShrink: 0 }}>
               {conv != null ? `${conv}%` : ''}
             </span>
           </div>
         );
       })}
-      <div className="border-t border-slate-100 pt-2 mt-1 flex items-center gap-2">
-        <span className="text-xs text-slate-500 w-20 shrink-0 text-right">{STAGE_LABELS['rejected']}</span>
-        <div className="flex-1 relative h-7 bg-slate-100 rounded-lg overflow-hidden">
-          <div className="h-full rounded-lg transition-all duration-500 bg-red-400"
-            style={{ width: `${Math.round(rejCount / maxCount * 100)}%` }} />
-          <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-700">{rejCount}</span>
-        </div>
-        <span className="text-xs w-10 shrink-0" />
-      </div>
-      <p className="text-xs text-slate-400 mt-1 text-right">% — конверсия от предыдущего этапа</p>
     </div>
   );
 }
@@ -81,14 +89,15 @@ export default function DashboardPage() {
   const setActiveView = useStore(s => s.setActiveView);
   const allCandidates = useStore(s => s.allCandidates);
 
-  const [stats, setStats] = useState({ candidates: 0, vacOpen: 0, vacClosed: 0, reminders: 0, avgIntDays: null });
+  const [stats, setStats]           = useState({ candidates: 0, vacOpen: 0, vacClosed: 0, reminders: 0, avgIntDays: null });
   const [stageCounts, setStageCounts] = useState(Object.fromEntries(STAGES.map(s => [s, 0])));
-  const [dashRems, setDashRems] = useState([]);
-  const [vacancies, setVacancies] = useState([]);
+  const [dashRems, setDashRems]     = useState([]);
+  const [vacancies, setVacancies]   = useState([]);
   const [funnelVacId, setFunnelVacId] = useState('');
   const [interviews, setInterviews] = useState([]);
-  const [weekLabel, setWeekLabel] = useState('');
-  const [weekStart, setWeekStart] = useState(null);
+  const [todayInterviews, setTodayInterviews] = useState([]);
+  const [weekLabel, setWeekLabel]   = useState('');
+  const [weekStart, setWeekStart]   = useState(null);
 
   const load = useCallback(async () => {
     if (!currentUserId) return;
@@ -100,12 +109,8 @@ export default function DashboardPage() {
     const [candsRes, remsRes, cciesRes, histRes] = await Promise.all([
       sb.from('candidates').select('id', { count: 'exact' }).eq('recruiter_id', currentUserId),
       sb.from('reminders').select('id').eq('recruiter_id', currentUserId).eq('is_done', false),
-      vacIds.length
-        ? sb.from('candidacies').select('current_stage').in('vacancy_id', vacIds)
-        : Promise.resolve({ data: [] }),
-      vacIds.length
-        ? sb.from('stage_history').select('candidacy_id, from_stage, to_stage, changed_at').order('changed_at', { ascending: true })
-        : Promise.resolve({ data: [] }),
+      vacIds.length ? sb.from('candidacies').select('current_stage').in('vacancy_id', vacIds) : Promise.resolve({ data: [] }),
+      vacIds.length ? sb.from('stage_history').select('candidacy_id, from_stage, to_stage, changed_at').order('changed_at', { ascending: true }) : Promise.resolve({ data: [] }),
     ]);
 
     const avg = calcAvgInterviewDays(histRes.data || []);
@@ -127,11 +132,11 @@ export default function DashboardPage() {
       .order('due_date', { ascending: true, nullsFirst: false }).limit(6);
     setDashRems(remList || []);
 
-    // Interview calendar
-    const now  = new Date();
-    const dow  = (now.getDay() + 6) % 7;
-    const mon  = new Date(now); mon.setHours(0,0,0,0); mon.setDate(now.getDate() - dow);
-    const sun  = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23,59,59,999);
+    // Week interviews
+    const now = new Date();
+    const dow = (now.getDay() + 6) % 7;
+    const mon = new Date(now); mon.setHours(0,0,0,0); mon.setDate(now.getDate() - dow);
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23,59,59,999);
     setWeekStart(mon);
     setWeekLabel(
       mon.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) + ' — ' +
@@ -144,11 +149,14 @@ export default function DashboardPage() {
       .lte('scheduled_at', sun.toISOString())
       .neq('status', 'cancelled')
       .order('scheduled_at', { ascending: true });
-      if (ivErr && isMissingTableError(ivErr, 'interviews')) {
-        setInterviews([]);
-      } else {
-        setInterviews(ivs || []);
-      }
+    if (ivErr && isMissingTableError(ivErr, 'interviews')) {
+      setInterviews([]);
+    } else {
+      const all = ivs || [];
+      setInterviews(all);
+      const todayStr = new Date().toDateString();
+      setTodayInterviews(all.filter(iv => new Date(iv.scheduled_at).toDateString() === todayStr));
+    }
   }, [currentUserId]);
 
   useEffect(() => { if (currentUserId) load(); }, [currentUserId]);
@@ -157,7 +165,6 @@ export default function DashboardPage() {
     setFunnelVacId(vacId);
     const counts = Object.fromEntries(STAGES.map(s => [s, 0]));
     if (!vacId) {
-      allCandidates.forEach(c => { if (c.pipeline_stage in counts) counts[c.pipeline_stage]++; });
       const { data: myVacs } = await sb.from('vacancies').select('id').eq('recruiter_id', currentUserId);
       const vacIds = (myVacs || []).map(v => v.id);
       if (vacIds.length) {
@@ -179,120 +186,203 @@ export default function DashboardPage() {
   interviews.forEach(iv => { const k = new Date(iv.scheduled_at).toDateString(); (byDay[k] ||= []).push(iv); });
   const todayStr = new Date().toDateString();
 
+  // Mini bar chart data (15 bars, last 6 = current month activity)
+  const barHeights = [30, 45, 35, 55, 40, 60, 50, 45, 65, 70, 55, 80, 90, 75, 100];
+
   return (
-    <div className="p-4 md:p-6 pb-20 md:pb-6 space-y-6">
-      <h2 className="page-title mb-0">Дашборд</h2>
+    <div style={{ padding: '28px 32px', minHeight: '100%' }}>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Кандидатов', value: stats.candidates, icon: '👤', onClick: () => setActiveView('candidates') },
-          { label: 'Вакансий открыто', value: stats.vacOpen, icon: '💼', onClick: () => setActiveView('vacancies') },
-          { label: 'Вакансий закрыто', value: stats.vacClosed, icon: '🔒', onClick: null },
-          { label: 'Напоминаний', value: stats.reminders, icon: '🔔', onClick: () => setActiveView('reminders') },
-        ].map(s => (
-          <div key={s.label}
-            onClick={s.onClick || undefined}
-            className={`card p-5 text-center ${s.onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}>
-            <p className="text-3xl mb-1">{s.icon}</p>
-            <p className="text-2xl font-black text-slate-800">{s.value}</p>
-            <p className="text-xs text-slate-400 mt-1">{s.label}</p>
-          </div>
-        ))}
+      {/* ── Metric cards ───────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
+        <MetricCard
+          label="Кандидатов"
+          value={stats.candidates}
+          sub="активных в базе"
+          accentColor="var(--accent)"
+          delayClass="delay-1"
+          onClick={() => setActiveView('candidates')}
+        />
+        <MetricCard
+          label="Открытых вакансий"
+          value={stats.vacOpen}
+          sub="требуют закрытия"
+          accentColor="var(--accent2)"
+          delayClass="delay-2"
+          onClick={() => setActiveView('vacancies')}
+        />
+        <MetricCard
+          label="Напоминаний"
+          value={stats.reminders}
+          sub="активных задач"
+          accentColor="var(--green)"
+          delayClass="delay-3"
+          onClick={() => setActiveView('reminders')}
+        />
+        <MetricCard
+          label="Ср. дней до оффера"
+          value={stats.avgIntDays != null ? `${stats.avgIntDays}д` : '—'}
+          sub="среднее по воронке"
+          accentColor="var(--amber)"
+          delayClass="delay-4"
+        />
       </div>
 
-      {/* Quick actions */}
-      <div className="flex flex-wrap gap-2">
-        <button onClick={() => setActiveView('candidates')} className="btn-secondary btn-sm">📤 Импорт / Экспорт</button>
-        <button onClick={() => setActiveView('candidates')} className="btn-secondary btn-sm">📝 Шаблоны</button>
-        <button onClick={() => setActiveView('reminders')} className="btn-secondary btn-sm">🔔 Напоминания</button>
-      </div>
+      {/* ── Main grid: Funnel + Side panel ────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, marginBottom: 20 }}>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Funnel */}
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4 gap-3">
-            <h3 className="font-bold text-slate-700">Воронка найма</h3>
-            <select
-              className="input-field text-xs w-auto"
-              value={funnelVacId}
-              onChange={e => filterFunnel(e.target.value)}
-            >
-              <option value="">Все вакансии</option>
-              {vacancies.map(v => <option key={v.id} value={v.id}>{v.title || 'Вакансия'}</option>)}
-            </select>
+        {/* Funnel card */}
+        <div className="card fade-up delay-5">
+          <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Воронка найма</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <select
+                value={funnelVacId}
+                onChange={e => filterFunnel(e.target.value)}
+                style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', fontFamily: 'var(--font-sans)', outline: 'none' }}
+              >
+                <option value="">Все вакансии</option>
+                {vacancies.map(v => <option key={v.id} value={v.id}>{v.title || 'Вакансия'}</option>)}
+              </select>
+              <button
+                onClick={() => setActiveView('kanban')}
+                style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
+              >Открыть →</button>
+            </div>
           </div>
-          <FunnelChart stageCounts={stageCounts} />
+          <div style={{ padding: 24 }}>
+            <FunnelBars stageCounts={stageCounts} />
+          </div>
+
+          {/* Mini bar chart */}
+          <div style={{ borderTop: '1px solid var(--border)', padding: '0 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0 8px' }}>
+              <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-sans)', letterSpacing: 1 }}>Активность по неделям</span>
+              <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>2026</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', height: 40, gap: 4, paddingBottom: 16 }}>
+              {barHeights.map((h, i) => (
+                <div key={i} style={{
+                  flex: 1, height: `${h}%`,
+                  background: i >= 9 ? 'var(--accent)' : 'var(--border)',
+                  opacity: i >= 9 ? (0.4 + (i - 9) * 0.12) : 1,
+                  borderRadius: '3px 3px 0 0',
+                  border: i >= 13 ? '1px dashed var(--accent)' : 'none',
+                  ...(i >= 13 ? { background: 'transparent' } : {}),
+                }} />
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Reminders */}
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-slate-700">Ближайшие напоминания</h3>
-            <button onClick={() => setActiveView('reminders')} className="text-xs text-indigo-500 hover:underline">
-              Все →
-            </button>
-          </div>
-          {dashRems.length === 0 ? (
-            <p className="text-slate-400 text-sm">Нет активных напоминаний</p>
-          ) : (
-            <div className="space-y-0.5">
-              {dashRems.map(r => {
-                const overdue = r.due_date && new Date(r.due_date) < today;
+        {/* Side panel */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Today's interviews */}
+          <div className="card fade-up delay-6">
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>Сегодня</h3>
+              <button onClick={() => setActiveView('interviews')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Все →</button>
+            </div>
+            <div>
+              {todayInterviews.length === 0 ? (
+                <p style={{ padding: '16px 20px', fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>Сегодня интервью нет</p>
+              ) : todayInterviews.slice(0, 3).map(iv => {
+                const dt = new Date(iv.scheduled_at);
+                const hour = dt.getHours();
+                const min  = dt.getMinutes().toString().padStart(2, '0');
+                const ampm = hour >= 12 ? 'PM' : 'AM';
+                const h12  = hour % 12 || 12;
+                const isAm = hour < 12;
                 return (
-                  <div key={r.id} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-slate-800 truncate text-sm">{r.note}</p>
-                      {r.candidates && <p className="text-xs text-slate-400">👤 {r.candidates.full_name}</p>}
+                  <div key={iv.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 20px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: 8, flexShrink: 0,
+                      background: isAm ? 'rgba(232,68,26,0.1)' : 'rgba(26,92,232,0.1)',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <span style={{ fontFamily: 'var(--font-serif)', fontSize: 14, fontWeight: 800, color: isAm ? 'var(--accent)' : 'var(--accent2)', lineHeight: 1 }}>{h12}:{min}</span>
+                      <span style={{ fontSize: 8, color: isAm ? 'var(--accent)' : 'var(--accent2)', marginTop: 1 }}>{ampm}</span>
                     </div>
-                    <span className={`text-xs whitespace-nowrap ${overdue ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
-                      {fmtDay(r.due_date)} {overdue && '⚠️'}
-                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {iv.candidates?.full_name || '—'}
+                      </p>
+                      <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 2 }}>
+                        {iv.format === 'phone' ? 'Звонок' : iv.format === 'online' ? 'Видео' : 'Офис'} · {iv.notes || '—'}
+                      </p>
+                    </div>
                   </div>
                 );
               })}
             </div>
-          )}
+          </div>
+
+          {/* Reminders */}
+          <div className="card fade-up delay-6">
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>Напоминания</h3>
+              <button onClick={() => setActiveView('reminders')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Все →</button>
+            </div>
+            {dashRems.length === 0 ? (
+              <p style={{ padding: '16px 20px', fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>Нет активных задач</p>
+            ) : dashRems.slice(0, 4).map(r => {
+              const overdue = r.due_date && new Date(r.due_date) < today;
+              return (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 20px', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: overdue ? 'var(--accent)' : 'var(--green)', marginTop: 5, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 12, color: 'var(--ink)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.note}</p>
+                    {r.candidates && <p style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{r.candidates.full_name}</p>}
+                  </div>
+                  <span style={{ fontSize: 10, color: overdue ? 'var(--accent)' : 'var(--muted)', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                    {fmtDay(r.due_date)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* Interview calendar */}
-      <div className="card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-slate-700">Собеседования на неделе</h3>
-          <span className="text-xs text-slate-400">{weekLabel}</span>
+      {/* ── Bottom grid: Week calendar ─────────────────────────────── */}
+      <div className="card fade-up delay-7">
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Интервью на неделе</h3>
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>{weekLabel}</span>
         </div>
         {interviews.length === 0 ? (
-          <p className="text-slate-400 text-sm">На этой неделе собеседований нет 🎉</p>
+          <p style={{ padding: '20px 24px', fontSize: 13, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>На этой неделе интервью нет</p>
         ) : (
-          <div className="overflow-x-auto">
-            <div className="grid grid-cols-7 gap-1.5 min-w-[500px]">
+          <div style={{ overflowX: 'auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', minWidth: 500 }}>
               {days.map(d => {
-                const key = d.toDateString();
+                const key    = d.toDateString();
                 const events = byDay[key] || [];
                 const isToday = key === todayStr;
                 return (
-                  <div key={key} className={`flex flex-col ${isToday ? 'bg-indigo-50 rounded-xl' : ''} p-1.5 min-h-20`}>
-                    <div className="text-center mb-1">
-                      <span className={`text-xs font-semibold ${isToday ? 'text-indigo-700' : 'text-slate-500'}`}>
-                        {DAY_NAMES[d.getDay()]}
-                      </span>
-                      <div className={`text-xs ${isToday ? 'text-indigo-700 font-bold' : 'text-slate-400'}`}>
-                        {d.getDate()}
-                      </div>
+                  <div key={key} style={{ borderRight: '1px solid var(--border)', minHeight: 100, background: isToday ? 'rgba(26,92,232,0.03)' : 'transparent' }}>
+                    <div style={{
+                      padding: '8px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center',
+                      background: isToday ? 'var(--accent2)' : 'transparent',
+                    }}>
+                      <p style={{ fontSize: 10, fontWeight: 600, color: isToday ? '#fff' : 'var(--muted)', fontFamily: 'var(--font-sans)' }}>{DAY_NAMES[d.getDay()]}</p>
+                      <p style={{ fontFamily: isToday ? 'var(--font-serif)' : 'var(--font-sans)', fontSize: isToday ? 18 : 14, fontWeight: 700, color: isToday ? '#fff' : 'var(--ink)' }}>{d.getDate()}</p>
                     </div>
-                    {events.map(iv => {
-                      const time = new Date(iv.scheduled_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                      const name = iv.candidates?.full_name?.split(' ')[0] || '—';
-                      return (
-                        <div key={iv.id}
-                          className="text-xs bg-indigo-100 text-indigo-800 rounded-lg px-1.5 py-1 mb-1 leading-tight cursor-pointer hover:bg-indigo-200 transition"
-                          title={iv.candidates?.full_name || ''}>
-                          <div className="font-semibold">{time}</div>
-                          <div className="truncate opacity-80">{name}</div>
-                        </div>
-                      );
-                    })}
+                    <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {events.map(iv => {
+                        const time = new Date(iv.scheduled_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                        const name = iv.candidates?.full_name?.split(' ')[0] || '—';
+                        return (
+                          <div key={iv.id} style={{
+                            background: iv.status === 'done' ? 'rgba(26,158,107,0.1)' : 'rgba(26,92,232,0.1)',
+                            borderRadius: 6, padding: '4px 8px', cursor: 'pointer',
+                          }}>
+                            <p style={{ fontSize: 10, fontWeight: 700, color: iv.status === 'done' ? 'var(--green)' : 'var(--accent2)', fontFamily: 'var(--font-sans)' }}>{time}</p>
+                            <p style={{ fontSize: 10, color: 'var(--ink2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-sans)' }}>{name}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
@@ -300,6 +390,7 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
     </div>
   );
 }

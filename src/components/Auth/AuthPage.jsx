@@ -43,25 +43,27 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-slate-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-black text-indigo-700">Recruit CRM</h1>
-          <p className="text-slate-500 mt-1">Система управления подбором персонала</p>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ width: '100%', maxWidth: 420 }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 36, fontWeight: 900, color: 'var(--ink)' }}>Recruit CRM</h1>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>Система управления подбором персонала</p>
         </div>
 
-        <div className="card p-8">
+        <div className="card" style={{ padding: 32 }}>
           {/* Tabs */}
-          <div className="flex gap-4 mb-6 border-b border-slate-200">
+          <div style={{ display: 'flex', gap: 24, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
             {['login', 'register'].map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`pb-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
-                  tab === t
-                    ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-slate-400 hover:text-slate-600'
-                }`}
+                style={{
+                  paddingBottom: 10, marginBottom: -1,
+                  fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  borderBottom: `2px solid ${tab === t ? 'var(--accent)' : 'transparent'}`,
+                  color: tab === t ? 'var(--ink)' : 'var(--muted)',
+                }}
               >
                 {t === 'login' ? 'Войти' : 'Регистрация'}
               </button>
