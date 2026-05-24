@@ -2,24 +2,8 @@ import { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
+import { useI18n } from '@/hooks/useI18n';
 import Modal from '@/components/common/Modal';
-
-// Поля кандидата в нашей схеме
-const CRM_FIELDS = [
-  { key: 'full_name',          label: 'ФИО *',                required: true  },
-  { key: 'phone',              label: 'Телефон',              required: false },
-  { key: 'email',              label: 'Email',                required: false },
-  { key: 'position',           label: 'Должность',            required: false },
-  { key: 'experience',         label: 'Опыт',                 required: false },
-  { key: 'salary_wish',        label: 'Желаемая зарплата',    required: false },
-  { key: 'district_residence', label: 'Район проживания',     required: false },
-  { key: 'district_work',      label: 'Район работы',         required: false },
-  { key: 'has_car',            label: 'Есть авто',            required: false },
-  { key: 'resume_source',      label: 'Источник резюме',      required: false },
-  { key: 'contact_status',     label: 'Статус контакта',      required: false },
-  { key: 'notes',              label: 'Заметки',              required: false },
-  { key: 'candidate_link',     label: 'Ссылка на профиль',    required: false },
-];
 
 const SKIP = '__skip__';
 
@@ -51,21 +35,19 @@ function parseCSV(text) {
 // Parse XLSX/XLS ArrayBuffer → { headers, rows }
 function parseXLSX(buffer) {
   const wb = XLSX.read(buffer, { type: 'array', cellText: true, cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]]; // первый лист
+  const ws = wb.Sheets[wb.SheetNames[0]];
   const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
   if (!raw.length) return { headers: [], rows: [] };
 
-  // Найти первую непустую строку как заголовки
   const headerRowIdx = raw.findIndex(r => r.some(c => String(c).trim() !== ''));
   if (headerRowIdx === -1) return { headers: [], rows: [] };
 
   const headers = raw[headerRowIdx].map(h => String(h).trim()).filter(Boolean);
-  const headerCount = raw[headerRowIdx].length;
 
   const rows = [];
   for (let i = headerRowIdx + 1; i < raw.length; i++) {
     const line = raw[i];
-    if (line.every(c => String(c).trim() === '')) continue; // пустая строка
+    if (line.every(c => String(c).trim() === '')) continue;
     const row = {};
     headers.forEach((h, idx) => {
       const val = line[idx];
@@ -103,7 +85,6 @@ function autoMap(csvHeaders) {
     const normalized = csvH.toLowerCase().trim();
     for (const [field, words] of Object.entries(hints)) {
       if (words.some(w => normalized.includes(w))) {
-        // Only map if field not already taken
         if (!Object.values(mapping).includes(field)) {
           mapping[csvH] = field;
           break;
@@ -119,13 +100,31 @@ export default function ImportModal({ open, onClose, onDone }) {
   const currentUserId = useStore(s => s.currentUserId);
   const currentOrgId  = useStore(s => s.currentOrgId);
   const addToast      = useStore(s => s.addToast);
+  const { t }         = useI18n();
+
+  // CRM fields with translated labels — defined inside component so t() works
+  const CRM_FIELDS = [
+    { key: 'full_name',          label: t('candidates.fieldName'),    required: true  },
+    { key: 'phone',              label: t('candidates.fieldPhone'),   required: false },
+    { key: 'email',              label: t('candidates.fieldEmail'),   required: false },
+    { key: 'position',           label: t('candidates.fieldPosition'),required: false },
+    { key: 'experience',         label: t('candidates.fieldExperience'), required: false },
+    { key: 'salary_wish',        label: t('candidates.fieldSalary'),  required: false },
+    { key: 'district_residence', label: t('candidates.fieldDistRes'), required: false },
+    { key: 'district_work',      label: t('candidates.fieldDistWork'),required: false },
+    { key: 'has_car',            label: t('candidates.fieldCar'),     required: false },
+    { key: 'resume_source',      label: t('candidates.fieldSource'),  required: false },
+    { key: 'contact_status',     label: t('candidates.fieldContact'), required: false },
+    { key: 'notes',              label: t('candidates.fieldNotes'),   required: false },
+    { key: 'candidate_link',     label: t('candidates.fieldLink'),    required: false },
+  ];
 
   const fileRef = useRef();
-  const [step,    setStep]    = useState(1); // 1=upload, 2=map, 3=preview, 4=done
-  const [parsed,  setParsed]  = useState(null); // { headers, rows }
-  const [mapping, setMapping] = useState({});   // { csvCol -> crmField | SKIP }
+  const [step,    setStep]    = useState(1);
+  const [parsed,  setParsed]  = useState(null);
+  const [mapping, setMapping] = useState({});
   const [loading, setLoading] = useState(false);
-  const [result,  setResult]  = useState(null);  // { imported, skipped, errors }
+  const [result,  setResult]  = useState(null);
 
   const reset = () => {
     setStep(1); setParsed(null); setMapping({});
@@ -144,7 +143,7 @@ export default function ImportModal({ open, onClose, onDone }) {
     const isCSV  = file.name.match(/\.(csv|txt)$/i);
 
     if (!isXLSX && !isCSV) {
-      addToast('Поддерживаются .xlsx, .xls, .csv', 'err'); return;
+      addToast(t('import.unsupported'), 'err'); return;
     }
 
     const reader = new FileReader();
@@ -155,15 +154,14 @@ export default function ImportModal({ open, onClose, onDone }) {
         if (isXLSX) {
           data = parseXLSX(ev.target.result);
         } else {
-          // Try UTF-8, fallback handled by browser
           data = parseCSV(ev.target.result);
         }
-        if (!data.headers.length) { addToast('Не удалось прочитать заголовки', 'err'); return; }
+        if (!data.headers.length) { addToast(t('import.noHeaders'), 'err'); return; }
         setParsed(data);
         setMapping(autoMap(data.headers));
         setStep(2);
       } catch (err) {
-        addToast('Ошибка парсинга: ' + err.message, 'err');
+        addToast(t('import.parseError') + ': ' + err.message, 'err');
       }
     };
 
@@ -177,7 +175,7 @@ export default function ImportModal({ open, onClose, onDone }) {
   // ── Step 2→3: confirm mapping ─────────────────────────────────────
   const handleMapping = () => {
     const hasFio = Object.values(mapping).includes('full_name');
-    if (!hasFio) { addToast('Нужно сопоставить поле «ФИО»', 'err'); return; }
+    if (!hasFio) { addToast(t('import.needsName'), 'err'); return; }
     setStep(3);
   };
 
@@ -203,7 +201,6 @@ export default function ImportModal({ open, onClose, onDone }) {
       const rec = { recruiter_id: currentUserId, org_id: currentOrgId, status: 'active', pipeline_stage: 'new' };
       Object.entries(mapping).forEach(([csvCol, crmField]) => {
         if (crmField !== SKIP && row[csvCol]?.trim()) {
-          // salary_wish → number
           if (crmField === 'salary_wish') {
             const n = parseInt(String(row[csvCol]).replace(/\D/g, ''));
             if (!isNaN(n)) rec[crmField] = n;
@@ -213,11 +210,10 @@ export default function ImportModal({ open, onClose, onDone }) {
         }
       });
       return rec;
-    }).filter(r => r.full_name?.trim()); // skip rows without name
+    }).filter(r => r.full_name?.trim());
 
     skipped = parsed.rows.length - allRows.length;
 
-    // Insert in batches
     for (let i = 0; i < allRows.length; i += BATCH) {
       const batch = allRows.slice(i, i + BATCH);
       const { error } = await sb.from('candidates').insert(batch);
@@ -237,17 +233,14 @@ export default function ImportModal({ open, onClose, onDone }) {
 
   const mappedCount = Object.values(mapping).filter(v => v !== SKIP).length;
 
+  const modalTitle =
+    step === 1 ? t('import.title') :
+    step === 2 ? `${t('import.step2')} (${parsed?.headers.length})` :
+    step === 3 ? `${t('import.step3')} — ${parsed?.rows.length}` :
+    t('import.done');
+
   return (
-    <Modal
-      open={open}
-      onClose={handleClose}
-      title={
-        step === 1 ? 'Импорт кандидатов из CSV' :
-        step === 2 ? `Сопоставление колонок (${parsed?.headers.length})` :
-        step === 3 ? `Предпросмотр — ${parsed?.rows.length} строк` :
-        'Импорт завершён'
-      }
-    >
+    <Modal open={open} onClose={handleClose} title={modalTitle}>
       {/* ── STEP 1: Upload ── */}
       {step === 1 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -260,22 +253,20 @@ export default function ImportModal({ open, onClose, onDone }) {
           >
             <p style={{ fontSize: 32, marginBottom: 10 }}>📂</p>
             <p style={{ fontFamily: 'var(--font-sans)', fontWeight: 600, fontSize: 14, color: 'var(--ink)', marginBottom: 6 }}>
-              Перетащи CSV или нажми для выбора
+              {t('import.dropHint')}
             </p>
             <p style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>
-              Поддерживаются файлы .csv с разделителем ; или ,
+              {t('import.uploadHint')}
             </p>
           </div>
           <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls" style={{ display: 'none' }} onChange={handleFile} />
 
           <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 16, border: '1px solid var(--border)' }}>
             <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', fontFamily: 'var(--font-sans)', marginBottom: 8 }}>
-              Как подготовить файл
+              {t('import.howToTitle')}
             </p>
             <p style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)', lineHeight: 1.7 }}>
-              Первая строка — названия колонок. Остальные строки — данные.
-              Имена колонок могут быть любыми — ты сам сопоставишь их с полями CRM.
-              Кодировка UTF-8 или Windows-1251.
+              {t('import.howToDesc')}
             </p>
           </div>
         </div>
@@ -285,8 +276,7 @@ export default function ImportModal({ open, onClose, onDone }) {
       {step === 2 && parsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <p style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>
-            Система автоматически распознала {mappedCount} из {parsed.headers.length} колонок.
-            Проверь и скорректируй если нужно.
+            {t('import.autoMapped')}: {mappedCount} {t('import.of')} {parsed.headers.length}
           </p>
 
           <div style={{ maxHeight: 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -297,7 +287,6 @@ export default function ImportModal({ open, onClose, onDone }) {
                 border: mapping[csvCol] !== SKIP ? '1px solid var(--accent2)' : '1px solid var(--border)',
                 opacity: mapping[csvCol] === SKIP ? 0.6 : 1,
               }}>
-                {/* CSV column name + sample */}
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', fontFamily: 'var(--font-sans)' }}>{csvCol}</p>
                   <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -307,14 +296,13 @@ export default function ImportModal({ open, onClose, onDone }) {
 
                 <span style={{ fontSize: 16, color: 'var(--muted)' }}>→</span>
 
-                {/* CRM field selector */}
                 <select
                   value={mapping[csvCol]}
                   onChange={e => setMapping(m => ({ ...m, [csvCol]: e.target.value }))}
                   className="input-field"
                   style={{ padding: '6px 10px', fontSize: 12 }}
                 >
-                  <option value={SKIP}>— пропустить —</option>
+                  <option value={SKIP}>{t('import.skipOption')}</option>
                   {CRM_FIELDS.map(f => (
                     <option key={f.key} value={f.key}>{f.label}</option>
                   ))}
@@ -325,10 +313,10 @@ export default function ImportModal({ open, onClose, onDone }) {
 
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={handleMapping} className="btn-primary" style={{ flex: 1, justifyContent: 'center', padding: '10px 0' }}>
-              Далее → Предпросмотр
+              {t('import.nextPreview')}
             </button>
             <button onClick={() => setStep(1)} className="btn-secondary" style={{ padding: '10px 16px' }}>
-              Назад
+              {t('import.backBtn')}
             </button>
           </div>
         </div>
@@ -338,7 +326,7 @@ export default function ImportModal({ open, onClose, onDone }) {
       {step === 3 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <p style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>
-            Первые 5 записей из {parsed?.rows.length}. Строки без ФИО будут пропущены.
+            {t('import.previewTitle')} {t('import.of')} {parsed?.rows.length}
           </p>
 
           <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border)' }}>
@@ -368,10 +356,10 @@ export default function ImportModal({ open, onClose, onDone }) {
 
           <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 16px', border: '1px solid var(--border)' }}>
             <p style={{ fontSize: 12, color: 'var(--ink)', fontFamily: 'var(--font-sans)' }}>
-              Будет импортировано: <strong>{parsed?.rows.filter(r => {
+              {t('import.willImport')} <strong>{parsed?.rows.filter(r => {
                 const nameCol = Object.entries(mapping).find(([, v]) => v === 'full_name')?.[0];
                 return nameCol && r[nameCol]?.trim();
-              }).length}</strong> из {parsed?.rows.length} строк
+              }).length}</strong> {t('import.of')} {parsed?.rows.length}
             </p>
           </div>
 
@@ -382,10 +370,10 @@ export default function ImportModal({ open, onClose, onDone }) {
               className="btn-primary"
               style={{ flex: 1, justifyContent: 'center', padding: '10px 0' }}
             >
-              {loading ? 'Импортируем…' : `⬆️ Импортировать ${parsed?.rows.length} кандидатов`}
+              {loading ? t('import.importing') : `⬆️ ${t('import.importBtn')} ${parsed?.rows.length}`}
             </button>
             <button onClick={() => setStep(2)} className="btn-secondary" style={{ padding: '10px 16px' }} disabled={loading}>
-              Назад
+              {t('import.backBtn')}
             </button>
           </div>
         </div>
@@ -399,30 +387,30 @@ export default function ImportModal({ open, onClose, onDone }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 16 }}>
               <p style={{ fontFamily: 'var(--font-serif)', fontSize: 32, fontWeight: 700, color: 'var(--green)' }}>{result.imported}</p>
-              <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 4 }}>Импортировано</p>
+              <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 4 }}>{t('import.importedLabel')}</p>
             </div>
             <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 16 }}>
               <p style={{ fontFamily: 'var(--font-serif)', fontSize: 32, fontWeight: 700, color: 'var(--amber)' }}>{result.skipped}</p>
-              <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 4 }}>Пропущено</p>
+              <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 4 }}>{t('import.skippedLabel')}</p>
             </div>
             <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 16 }}>
               <p style={{ fontFamily: 'var(--font-serif)', fontSize: 32, fontWeight: 700, color: result.errors > 0 ? 'var(--accent)' : 'var(--muted)' }}>{result.errors}</p>
-              <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 4 }}>Ошибок</p>
+              <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 4 }}>{t('import.errorsLabel')}</p>
             </div>
           </div>
 
           {result.skipped > 0 && (
             <p style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>
-              Строки без ФИО были пропущены автоматически
+              {t('import.skipNoName')}
             </p>
           )}
 
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={handleClose} className="btn-primary" style={{ flex: 1, justifyContent: 'center', padding: '10px 0' }}>
-              Закрыть
+              {t('import.closeBtn')}
             </button>
             <button onClick={reset} className="btn-secondary" style={{ padding: '10px 16px' }}>
-              Ещё импорт
+              {t('import.anotherImport')}
             </button>
           </div>
         </div>

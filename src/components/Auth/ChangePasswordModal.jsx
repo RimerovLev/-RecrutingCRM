@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
+import { useI18n } from '@/hooks/useI18n';
 import Modal from '@/components/common/Modal';
 
 export default function ChangePasswordModal({ open, onClose }) {
   const addToast = useStore(s => s.addToast);
+  const { t }    = useI18n();
 
   const [current,  setCurrent]  = useState('');
   const [next,     setNext]     = useState('');
@@ -19,46 +21,41 @@ export default function ChangePasswordModal({ open, onClose }) {
     e.preventDefault();
 
     if (next.length < 6) {
-      addToast('Пароль должен быть не менее 6 символов', 'err'); return;
+      addToast(t('common.error'), 'err'); return;
     }
     if (next !== confirm) {
-      addToast('Пароли не совпадают', 'err'); return;
+      addToast(t('changePw.mismatch'), 'err'); return;
     }
 
     setLoading(true);
 
-    // Supabase: сначала проверяем текущий пароль через повторный вход
     const { data: userData } = await sb.auth.getUser();
     const email = userData?.user?.email;
 
-    const { error: signInErr } = await sb.auth.signInWithPassword({
-      email,
-      password: current,
-    });
+    const { error: signInErr } = await sb.auth.signInWithPassword({ email, password: current });
 
     if (signInErr) {
-      addToast('Текущий пароль неверный', 'err');
+      addToast(t('changePw.toastError'), 'err');
       setLoading(false);
       return;
     }
 
-    // Меняем пароль
     const { error } = await sb.auth.updateUser({ password: next });
     setLoading(false);
 
     if (error) {
-      addToast('Ошибка: ' + error.message, 'err');
+      addToast(t('common.error') + ': ' + error.message, 'err');
     } else {
-      addToast('Пароль успешно изменён ✓');
+      addToast(t('changePw.toastSuccess') + ' ✓');
       handleClose();
     }
   };
 
   return (
-    <Modal open={open} onClose={handleClose} title="Сменить пароль">
+    <Modal open={open} onClose={handleClose} title={t('changePw.title')}>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
-          <label className="form-label">Текущий пароль *</label>
+          <label className="form-label">{t('changePw.currentPw')} *</label>
           <input
             type="password"
             className="input-field"
@@ -71,13 +68,12 @@ export default function ChangePasswordModal({ open, onClose }) {
         </div>
 
         <div>
-          <label className="form-label">Новый пароль *</label>
+          <label className="form-label">{t('changePw.newPw')} *</label>
           <input
             type="password"
             className="input-field"
             value={next}
             onChange={e => setNext(e.target.value)}
-            placeholder="Минимум 6 символов"
             required
             minLength={6}
             autoComplete="new-password"
@@ -85,19 +81,18 @@ export default function ChangePasswordModal({ open, onClose }) {
         </div>
 
         <div>
-          <label className="form-label">Повтори новый пароль *</label>
+          <label className="form-label">{t('changePw.confirmPw')} *</label>
           <input
             type="password"
             className="input-field"
             value={confirm}
             onChange={e => setConfirm(e.target.value)}
-            placeholder="Ещё раз новый пароль"
             required
             autoComplete="new-password"
           />
           {confirm && next && confirm !== next && (
             <p style={{ fontSize: 11, color: 'var(--accent)', marginTop: 4, fontFamily: 'var(--font-sans)' }}>
-              Пароли не совпадают
+              {t('changePw.mismatch')}
             </p>
           )}
         </div>
@@ -109,7 +104,7 @@ export default function ChangePasswordModal({ open, onClose }) {
             disabled={loading}
             style={{ flex: 1, justifyContent: 'center', padding: '10px 0' }}
           >
-            {loading ? 'Сохраняем…' : '🔒 Сменить пароль'}
+            {loading ? t('common.saving') : '🔒 ' + t('changePw.saveBtn')}
           </button>
           <button
             type="button"
@@ -117,7 +112,7 @@ export default function ChangePasswordModal({ open, onClose }) {
             className="btn-secondary"
             style={{ padding: '10px 20px' }}
           >
-            Отмена
+            {t('common.cancel')}
           </button>
         </div>
       </form>

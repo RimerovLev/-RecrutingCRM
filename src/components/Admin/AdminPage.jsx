@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
+import { useI18n } from '@/hooks/useI18n';
 import Modal from '@/components/common/Modal';
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -14,15 +15,7 @@ function fmtDateTime(d) {
   return new Date(d).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-const TABS = [
-  { id: 'overview',    label: '📊 Сводка' },
-  { id: 'team',        label: '🏢 Команда' },
-  { id: 'hr',         label: '👥 Рекрутеры' },
-  { id: 'candidates', label: '👤 Кандидаты' },
-  { id: 'vacancies',  label: '💼 Вакансии' },
-  { id: 'activity',   label: '📋 Активность' },
-  { id: 'reports',    label: '📥 Отчёты' },
-];
+const TAB_IDS = ['overview', 'team', 'hr', 'candidates', 'vacancies', 'activity', 'reports'];
 
 // ── Mini stat card ───────────────────────────────────────────────
 function StatCard({ label, value, sub, color = 'indigo' }) {
@@ -166,7 +159,18 @@ export default function AdminPage() {
   const [candSearch, setCandSearch] = useState('');
   const [candHrFilter, setCandHrFilter] = useState('');
 
+  const { t }              = useI18n();
   const isAdmin = currentProfileRole === 'admin';
+
+  const TABS = [
+    { id: 'overview',    label: t('admin.tabOverview') },
+    { id: 'team',        label: t('admin.tabTeam') },
+    { id: 'hr',          label: t('admin.tabCandidates') },
+    { id: 'candidates',  label: '👤 ' + t('nav.candidates') },
+    { id: 'vacancies',   label: '💼 ' + t('nav.vacancies') },
+    { id: 'activity',    label: t('admin.tabActivity') },
+    { id: 'reports',     label: t('admin.tabReports') },
+  ];
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -218,7 +222,7 @@ export default function AdminPage() {
       p_role: editMemberRole,
     });
     if (error || data?.error) { addToast(data?.error || error.message, 'err'); return; }
-    addToast('Роль обновлена ✓');
+    addToast(t('admin.changeRole') + ' ✓');
     setEditMember(null);
     loadTeam();
   };
@@ -226,7 +230,7 @@ export default function AdminPage() {
   const updateRole = async () => {
     const { error } = await sb.from('profiles').update({ role: editRole }).eq('id', editHr.recruiter_id);
     if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
-    addToast('Роль обновлена ✓');
+    addToast(t('admin.changeRole') + ' ✓');
     setEditHr(null);
     loadAll();
   };
@@ -390,8 +394,7 @@ export default function AdminPage() {
       <div className="flex items-center justify-center h-64 text-slate-400">
         <div className="text-center">
           <p className="text-5xl mb-3">🔐</p>
-          <p className="font-semibold">Доступ только для администраторов</p>
-          <p className="text-sm mt-1">Обратитесь к администратору системы</p>
+          <p className="font-semibold">{t('admin.title')}</p>
         </div>
       </div>
     );
@@ -402,10 +405,9 @@ export default function AdminPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="page-title mb-0">⚡ Администрирование</h2>
-          <p className="text-sm text-slate-400 mt-0.5">Управление рекрутерами, кандидатами и отчётами</p>
+          <h2 className="page-title mb-0">⚡ {t('admin.title')}</h2>
         </div>
-        <button onClick={loadAll} className="btn-secondary btn-sm">🔄 Обновить</button>
+        <button onClick={loadAll} className="btn-secondary btn-sm">🔄</button>
       </div>
 
       {/* Tabs */}
@@ -421,7 +423,7 @@ export default function AdminPage() {
       </div>
 
       {loading && (
-        <div className="card p-10 text-center text-slate-400">Загрузка данных…</div>
+        <div className="card p-10 text-center text-slate-400">{t('common.loading')}</div>
       )}
 
       {!loading && (
@@ -430,27 +432,27 @@ export default function AdminPage() {
           {tab === 'overview' && (
             <div className="space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-                <StatCard label="Всего HR" value={totalHRs} color="indigo" />
-                <StatCard label="Кандидатов" value={totalCands} sub={`${activeCands} активных`} color="emerald" />
-                <StatCard label="Вакансий" value={totalVacs} sub={`${openVacs} открытых`} color="amber" />
-                <StatCard label="Интервью" value={hrStats.reduce((s,h)=>s+fmt(h.total_interviews),0)} color="purple" />
-                <StatCard label="Напоминаний" value={hrStats.reduce((s,h)=>s+fmt(h.pending_reminders),0)} sub="активных" color="slate" />
+                <StatCard label={t('admin.colRecruiter')} value={totalHRs} color="indigo" />
+                <StatCard label={t('admin.colCandidates')} value={totalCands} sub={`${activeCands} ${t('admin.colActive').toLowerCase()}`} color="emerald" />
+                <StatCard label={t('nav.vacancies')} value={totalVacs} sub={`${openVacs} ${t('vacStatus.open').toLowerCase()}`} color="amber" />
+                <StatCard label={t('admin.colInterviews')} value={hrStats.reduce((s,h)=>s+fmt(h.total_interviews),0)} color="purple" />
+                <StatCard label={t('nav.reminders')} value={hrStats.reduce((s,h)=>s+fmt(h.pending_reminders),0)} color="slate" />
               </div>
 
               {/* Top HR table */}
               <div className="card overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-100 font-semibold text-slate-700">
-                  Топ рекрутеров по кандидатам
+                  {t('admin.hrStats')}
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
                       <tr>
-                        <th className="px-4 py-3 text-left">Рекрутер</th>
-                        <th className="px-4 py-3 text-right">Всего</th>
-                        <th className="px-4 py-3 text-right">Активных</th>
-                        <th className="px-4 py-3 text-right">Вакансий</th>
-                        <th className="px-4 py-3 text-right">Интервью</th>
+                        <th className="px-4 py-3 text-left">{t('admin.colRecruiter')}</th>
+                        <th className="px-4 py-3 text-right">{t('admin.colCandidates')}</th>
+                        <th className="px-4 py-3 text-right">{t('admin.colActive')}</th>
+                        <th className="px-4 py-3 text-right">{t('nav.vacancies')}</th>
+                        <th className="px-4 py-3 text-right">{t('admin.colInterviews')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -485,7 +487,7 @@ export default function AdminPage() {
 
               {/* Invite generator */}
               <div className="card" style={{ padding: '20px 24px' }}>
-                <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 16 }}>Пригласить в команду</p>
+                <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 16 }}>{t('admin.inviteTitle')}</p>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                   <select
                     value={inviteRole}
@@ -502,7 +504,7 @@ export default function AdminPage() {
                     disabled={creatingInvite}
                     className="btn-primary"
                   >
-                    {creatingInvite ? 'Генерируем…' : '🔗 Создать ссылку'}
+                    {creatingInvite ? t('common.loading') : '🔗 ' + t('admin.genInvite')}
                   </button>
                 </div>
 
@@ -520,7 +522,7 @@ export default function AdminPage() {
                         {newInvite.token}
                       </code>
                       <button
-                        onClick={() => { navigator.clipboard.writeText(newInvite.token); addToast('Скопировано ✓'); }}
+                        onClick={() => { navigator.clipboard.writeText(newInvite.token); addToast(t('common.copied')); }}
                         className="btn-secondary"
                         style={{ padding: '8px 12px', flexShrink: 0 }}
                       >📋</button>

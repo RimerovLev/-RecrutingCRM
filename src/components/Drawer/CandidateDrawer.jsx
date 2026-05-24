@@ -2,16 +2,17 @@ import { useEffect, useState, useCallback } from 'react';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useCanWrite } from '@/hooks/useCanWrite';
+import { useI18n } from '@/hooks/useI18n';
 import { STAGES, STAGE_LABELS, STAGE_COLORS, STATUS_BADGE } from '@/lib/config';
 import { isMissingTableError } from '@/lib/apiErrors';
 
-function fmtDate(d) {
+function fmtDate(d, locale = 'ru-RU') {
   if (!d) return '—';
-  return new Date(d).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+  return new Date(d).toLocaleString(locale, { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 }
-function fmtDay(d) {
+function fmtDay(d, locale = 'ru-RU') {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('ru-RU');
+  return new Date(d).toLocaleDateString(locale);
 }
 
 export default function CandidateDrawer({ onReload }) {
@@ -21,6 +22,7 @@ export default function CandidateDrawer({ onReload }) {
   const currentUserId     = useStore(s => s.currentUserId);
   const addToast          = useStore(s => s.addToast);
   const canWrite          = useCanWrite();
+  const { t, isRTL }      = useI18n();
   const [visible, setVisible] = useState(false);
 
   // Data
@@ -84,7 +86,8 @@ export default function CandidateDrawer({ onReload }) {
     // Load timeline
     const c = candRes.data;
     const events = [];
-    if (c?.created_at) events.push({ ts: c.created_at, icon: '👤', color: 'bg-indigo-100', text: 'Кандидат добавлен' });
+    const locale = isRTL ? 'he-IL' : 'ru-RU';
+    if (c?.created_at) events.push({ ts: c.created_at, icon: '👤', color: 'bg-indigo-100', text: t('drawer.candidateAdded') });
     const candIds = (ccRes.data || []).map(cc => cc.id);
     if (candIds.length) {
       const { data: stageH } = await sb.from('stage_history')
@@ -102,7 +105,7 @@ export default function CandidateDrawer({ onReload }) {
       events.push({ ts: cm.created_at, icon: '💬', color: 'bg-blue-100', text: cm.content, sub: cm.profiles?.full_name || null });
     });
     (remRes.data || []).forEach(r => {
-      events.push({ ts: r.created_at, icon: r.is_done ? '✅' : '⏰', color: r.is_done ? 'bg-green-100' : 'bg-yellow-100', text: r.note, sub: r.due_date ? `Срок: ${fmtDay(r.due_date)}` : null });
+      events.push({ ts: r.created_at, icon: r.is_done ? '✅' : '⏰', color: r.is_done ? 'bg-green-100' : 'bg-yellow-100', text: r.note, sub: r.due_date ? `${t('drawer.dueDate')} ${fmtDay(r.due_date, locale)}` : null });
     });
     events.sort((a, b) => new Date(b.ts) - new Date(a.ts));
     setTimeline(events);
@@ -124,7 +127,7 @@ export default function CandidateDrawer({ onReload }) {
         to_stage: newStage, changed_by: currentUserId,
       });
     }
-    addToast(`Этап → ${STAGE_LABELS[newStage] || newStage} ✓`);
+    addToast(`${t('drawer.stage')} → ${STAGE_LABELS[newStage] || newStage} ✓`);
     loadAll();
   };
 
@@ -136,8 +139,8 @@ export default function CandidateDrawer({ onReload }) {
       recruiter_id: currentUserId, candidate_id: drawerCandidateId,
       note: noteText, due_date: remDate || null, is_done: false,
     });
-    if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
-    addToast('Напоминание добавлено ✓');
+    if (error) { addToast(t('common.error') + ': ' + error.message, 'err'); return; }
+    addToast(t('reminders.toastSaved') + ' ✓');
     setRemNote(''); setRemDate(''); setRemTime('');
     loadAll();
   };
@@ -153,23 +156,23 @@ export default function CandidateDrawer({ onReload }) {
     const { error } = await sb.from('comments').insert({
       candidate_id: drawerCandidateId, recruiter_id: currentUserId, content: comment.trim(),
     });
-    if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
-    addToast('Комментарий добавлен ✓');
+    if (error) { addToast(t('common.error') + ': ' + error.message, 'err'); return; }
+    addToast(t('drawer.addComment') + ' ✓');
     setComment('');
     loadAll();
   };
 
   const addInterview = async (e) => {
     e.preventDefault();
-    if (!intDate || !intTime) { addToast('Укажи дату и время', 'err'); return; }
+    if (!intDate || !intTime) { addToast(t('common.error'), 'err'); return; }
     const scheduledAt = `${intDate}T${intTime}:00`;
     const { error } = await sb.from('interviews').insert({
       candidate_id: drawerCandidateId, recruiter_id: currentUserId,
       scheduled_at: scheduledAt, format: intType,
       notes: intNote.trim() || null, status: 'scheduled',
     });
-    if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
-    addToast('Собеседование добавлено ✓');
+    if (error) { addToast(t('common.error') + ': ' + error.message, 'err'); return; }
+    addToast(t('interviews.toastSaved') + ' ✓');
     setIntDate(''); setIntTime(''); setIntNote(''); setIntType('phone');
     loadAll();
   };
@@ -190,16 +193,16 @@ export default function CandidateDrawer({ onReload }) {
   const saveEdit = async (e) => {
     e.preventDefault();
     await sb.from('candidates').update(editForm).eq('id', drawerCandidateId);
-    addToast('Сохранено ✓');
+    addToast(t('candidates.toastSaved') + ' ✓');
     setEditMode(false);
     loadAll();
     onReload?.();
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Удалить «${candidate?.full_name}»?`)) return;
+    if (!confirm(`${t('candidates.confirmDelete')} «${candidate?.full_name}»?`)) return;
     await sb.from('candidates').delete().eq('id', drawerCandidateId);
-    addToast('Кандидат удалён');
+    addToast(t('candidates.toastDeleted'));
     handleClose();
     onReload?.();
   };
@@ -227,7 +230,7 @@ export default function CandidateDrawer({ onReload }) {
             <h3 className="font-bold text-slate-800 text-lg truncate">{candidate.full_name}</h3>
             {candidate.position && <p className="text-sm text-slate-500">{candidate.position}</p>}
             <p className="text-xs text-slate-400">
-              {candidate.created_at ? `Добавлен ${new Date(candidate.created_at).toLocaleDateString('ru-RU')}` : ''}
+              {candidate.created_at ? `${t('drawer.createdAt')} ${new Date(candidate.created_at).toLocaleDateString(isRTL ? 'he-IL' : 'ru-RU')}` : ''}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -237,9 +240,9 @@ export default function CandidateDrawer({ onReload }) {
             {canWrite && (
               <select value={candidate.status || 'active'} onChange={e => updateStatus(e.target.value)}
                 className={`text-xs font-semibold px-3 py-1 rounded-full border-0 cursor-pointer ${statusCls}`}>
-                <option value="active">Активный</option>
-                <option value="in_work">В работе</option>
-                <option value="archive">Архив</option>
+                <option value="active">{t('status.active')}</option>
+                <option value="in_work">{t('status.in_work')}</option>
+                <option value="archive">{t('status.archive')}</option>
               </select>
             )}
             <button onClick={handleClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none ml-1">✕</button>
@@ -249,18 +252,18 @@ export default function CandidateDrawer({ onReload }) {
         {/* Tabs */}
         <div className="flex border-b border-slate-100 px-2 overflow-x-auto">
           {[
-            { id: 'info', label: 'Инфо' },
-            { id: 'vacancies', label: '💼 Вакансии' },
-            { id: 'reminders', label: '🔔 Напоминания' },
-            { id: 'comments', label: '💬 Комменты' },
-            { id: 'interviews', label: '🤝 Собесы' },
-            { id: 'timeline', label: '🕐 История' },
-          ].map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)}
+            { id: 'info',       label: t('drawer.tabInfo') },
+            { id: 'vacancies',  label: '💼 ' + t('nav.vacancies') },
+            { id: 'reminders',  label: '🔔 ' + t('drawer.tabReminders') },
+            { id: 'comments',   label: '💬 ' + t('drawer.tabComments') },
+            { id: 'interviews', label: '🤝 ' + t('drawer.tabInterviews') },
+            { id: 'timeline',   label: '🕐 ' + t('drawer.tabTimeline') },
+          ].map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`px-3 py-2.5 text-xs font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${
-                activeTab === t.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'
+                activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'
               }`}>
-              {t.label}
+              {tab.label}
             </button>
           ))}
         </div>
@@ -274,11 +277,11 @@ export default function CandidateDrawer({ onReload }) {
               {editMode ? (
                 <form onSubmit={saveEdit} className="space-y-3">
                   {[
-                    ['full_name', 'Имя'], ['phone', 'Телефон'], ['email', 'Email'],
-                    ['position', 'Должность'], ['experience', 'Опыт'],
-                    ['district_residence', 'Р. проживания'], ['district_work', 'Р. работы'],
-                    ['resume_source', 'Источник'], ['contact_status', 'Контакт-статус'],
-                    ['candidate_link', 'Ссылка на профиль'], ['resume_url', 'Ссылка на резюме'],
+                    ['full_name', t('candidates.fieldName')], ['phone', t('common.phone')], ['email', t('common.email')],
+                    ['position', t('candidates.fieldPosition')], ['experience', t('candidates.fieldExperience')],
+                    ['district_residence', t('candidates.fieldDistRes')], ['district_work', t('candidates.fieldDistWork')],
+                    ['resume_source', t('candidates.fieldSource')], ['contact_status', t('candidates.fieldContact')],
+                    ['candidate_link', t('candidates.fieldLink')], ['resume_url', t('candidates.fieldResumeUrl')],
                   ].map(([field, label]) => (
                     <div key={field}>
                       <label className="form-label">{label}</label>
@@ -287,27 +290,27 @@ export default function CandidateDrawer({ onReload }) {
                     </div>
                   ))}
                   <div>
-                    <label className="form-label">Заметки</label>
+                    <label className="form-label">{t('drawer.notes')}</label>
                     <textarea className="input-field" rows={3} value={editForm.notes || ''}
                       onChange={e => setEditForm(f => ({...f, notes: e.target.value}))} />
                   </div>
                   <div className="flex gap-2">
-                    <button type="submit" className="btn-primary btn-sm">Сохранить</button>
-                    <button type="button" onClick={() => setEditMode(false)} className="btn-secondary btn-sm">Отмена</button>
+                    <button type="submit" className="btn-primary btn-sm">{t('drawer.saveBtn')}</button>
+                    <button type="button" onClick={() => setEditMode(false)} className="btn-secondary btn-sm">{t('drawer.cancelBtn')}</button>
                   </div>
                 </form>
               ) : (
                 <>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     {[
-                      ['📞 Телефон', candidate.phone],
-                      ['✉️ Email', candidate.email],
-                      ['🚗 Авто', candidate.has_car],
-                      ['🏠 Р. проживания', candidate.district_residence],
-                      ['🏢 Р. работы', candidate.district_work],
-                      ['📋 Источник', candidate.resume_source],
-                      ['📝 Опыт', candidate.experience],
-                      ['💬 Контакт', candidate.contact_status],
+                      ['📞 ' + t('drawer.phone'), candidate.phone],
+                      ['✉️ ' + t('drawer.email'), candidate.email],
+                      ['🚗 ' + t('drawer.car'), candidate.has_car],
+                      ['🏠 ' + t('drawer.distRes'), candidate.district_residence],
+                      ['🏢 ' + t('drawer.distWork'), candidate.district_work],
+                      ['📋 ' + t('drawer.source'), candidate.resume_source],
+                      ['📝 ' + t('drawer.experience'), candidate.experience],
+                      ['💬 ' + t('drawer.contactStatus'), candidate.contact_status],
                     ].map(([label, value]) => (
                       <div key={label}>
                         <p className="text-xs text-slate-400">{label}</p>
@@ -318,7 +321,7 @@ export default function CandidateDrawer({ onReload }) {
 
                   {tags.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
-                      {tags.map(t => <span key={t} className="tag-chip">{t}</span>)}
+                      {tags.map(tag => <span key={tag} className="tag-chip">{tag}</span>)}
                     </div>
                   )}
 
@@ -326,11 +329,11 @@ export default function CandidateDrawer({ onReload }) {
                     <div className="flex gap-3">
                       {candidate.candidate_link && (
                         <a href={candidate.candidate_link} target="_blank" rel="noreferrer"
-                          className="text-indigo-500 hover:underline text-sm">👤 Профиль</a>
+                          className="text-indigo-500 hover:underline text-sm">{t('drawer.profileLink')}</a>
                       )}
                       {candidate.resume_url && (
                         <a href={candidate.resume_url} target="_blank" rel="noreferrer"
-                          className="text-indigo-500 hover:underline text-sm">📎 Резюме</a>
+                          className="text-indigo-500 hover:underline text-sm">{t('drawer.resumeLink')}</a>
                       )}
                     </div>
                   )}
@@ -344,9 +347,9 @@ export default function CandidateDrawer({ onReload }) {
                   {canWrite && (
                     <div className="flex gap-2 pt-2 border-t border-slate-100">
                       <button onClick={() => { setEditForm({ ...candidate }); setEditMode(true); }}
-                        className="btn-secondary btn-sm">✏️ Редактировать</button>
+                        className="btn-secondary btn-sm">{t('drawer.editBtn')}</button>
                       <button onClick={handleDelete}
-                        className="btn-secondary btn-sm text-red-400 hover:bg-red-50">🗑️ Удалить</button>
+                        className="btn-secondary btn-sm text-red-400 hover:bg-red-50">{t('drawer.deleteBtn')}</button>
                     </div>
                   )}
                 </>
@@ -358,14 +361,14 @@ export default function CandidateDrawer({ onReload }) {
           {activeTab === 'vacancies' && (
             <div className="space-y-2">
               {candidacies.length === 0
-                ? <p className="text-sm text-slate-400">Не привязан к вакансиям</p>
+                ? <p className="text-sm text-slate-400">{t('drawer.noVacancies')}</p>
                 : candidacies.map(cc => {
                   const v = cc.vacancies || {};
                   const stage = cc.current_stage || 'new';
                   return (
                     <div key={cc.id} className="flex items-center justify-between bg-white border border-slate-100 rounded-lg px-3 py-2 gap-2">
                       <span className="text-xs text-slate-700 font-medium truncate flex-1">
-                        {v.title || 'Вакансия'}
+                        {v.title || t('drawer.vacancy')}
                         {v.status === 'open'
                           ? <span className="ml-1 text-emerald-600">●</span>
                           : <span className="ml-1 text-slate-300">●</span>}
@@ -391,20 +394,20 @@ export default function CandidateDrawer({ onReload }) {
                     <button onClick={() => doneReminder(r.id)}
                       className={`flex-shrink-0 w-4 h-4 rounded-full border ${overdue ? 'border-red-300' : 'border-indigo-300'} hover:bg-green-100 transition`} />
                     <span className={`flex-1 ${overdue ? 'text-red-700' : 'text-slate-700'}`}>{r.note}</span>
-                    <span className={overdue ? 'text-red-500 font-semibold' : 'text-slate-400'}>{fmtDay(r.due_date)}</span>
+                    <span className={overdue ? 'text-red-500 font-semibold' : 'text-slate-400'}>{fmtDay(r.due_date, isRTL ? 'he-IL' : 'ru-RU')}</span>
                   </div>
                 );
               })}
               {canWrite && (
                 <form onSubmit={addReminder} className="space-y-2 pt-2 border-t border-slate-100">
-                  <h4 className="text-xs font-semibold text-slate-500">Добавить напоминание</h4>
-                  <input className="input-field" placeholder="Заметка" value={remNote}
+                  <h4 className="text-xs font-semibold text-slate-500">{t('drawer.reminderFormTitle')}</h4>
+                  <input className="input-field" placeholder={t('drawer.reminderNotePh')} value={remNote}
                     onChange={e => setRemNote(e.target.value)} required />
                   <div className="grid grid-cols-2 gap-2">
                     <input type="date" className="input-field" value={remDate} onChange={e => setRemDate(e.target.value)} />
                     <input type="time" className="input-field" value={remTime} onChange={e => setRemTime(e.target.value)} />
                   </div>
-                  <button type="submit" className="btn-primary btn-sm w-full justify-center">+ Добавить</button>
+                  <button type="submit" className="btn-primary btn-sm w-full justify-center">{t('drawer.addReminder')}</button>
                 </form>
               )}
             </div>
@@ -414,19 +417,19 @@ export default function CandidateDrawer({ onReload }) {
           {activeTab === 'comments' && (
             <div className="space-y-3">
               {comments.length === 0
-                ? <p className="text-xs text-slate-400">Нет комментариев</p>
+                ? <p className="text-xs text-slate-400">{t('drawer.noComments')}</p>
                 : comments.map(c => (
                   <div key={c.id} className="bg-slate-50 rounded-lg px-3 py-2">
                     <div className="flex justify-between text-xs text-slate-400 mb-0.5">
-                      <span className="font-semibold text-slate-600">{c.profiles?.full_name || 'Рекрутер'}</span>
-                      <span>{fmtDate(c.created_at)}</span>
+                      <span className="font-semibold text-slate-600">{c.profiles?.full_name || t('drawer.recruiter')}</span>
+                      <span>{fmtDate(c.created_at, isRTL ? 'he-IL' : 'ru-RU')}</span>
                     </div>
                     <p className="text-sm text-slate-700">{c.content}</p>
                   </div>
                 ))
               }
               <form onSubmit={addComment} className="flex gap-2 pt-2 border-t border-slate-100">
-                <input className="input-field flex-1" placeholder="Написать комментарий…" value={comment}
+                <input className="input-field flex-1" placeholder={t('drawer.commentPh')} value={comment}
                   onChange={e => setComment(e.target.value)} required />
                 <button type="submit" className="btn-primary btn-sm">→</button>
               </form>
@@ -439,9 +442,9 @@ export default function CandidateDrawer({ onReload }) {
               {interviews.map(iv => (
                 <div key={iv.id} className={`card p-3 text-sm ${iv.status === 'done' ? 'opacity-60' : ''}`}>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold">{iv.format === 'phone' ? '📞' : iv.format === 'online' ? '🎥' : '🏢'} {new Date(iv.scheduled_at).toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
+                    <span className="font-semibold">{iv.format === 'phone' ? '📞' : iv.format === 'online' ? '🎥' : '🏢'} {new Date(iv.scheduled_at).toLocaleString(isRTL ? 'he-IL' : 'ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${iv.status === 'done' ? 'bg-green-100 text-green-700' : iv.status === 'cancelled' ? 'bg-red-100 text-red-500' : 'bg-indigo-100 text-indigo-700'}`}>
-                      {iv.status === 'done' ? 'Проведён' : iv.status === 'cancelled' ? 'Отменён' : 'Запланирован'}
+                      {iv.status === 'done' ? t('interviews.statusDone') : iv.status === 'cancelled' ? t('interviews.statusCancelled') : t('interviews.statusPlanned')}
                     </span>
                   </div>
                   {iv.notes && <p className="text-xs text-slate-500">{iv.notes}</p>}
@@ -449,31 +452,31 @@ export default function CandidateDrawer({ onReload }) {
                     <div className="flex gap-2 mt-2">
                       <button onClick={async () => {
                         await sb.from('interviews').update({ status: 'done' }).eq('id', iv.id);
-                        addToast('Собеседование проведено ✓');
+                        addToast(t('drawer.interviewDone') + ' ✓');
                         loadAll();
-                      }} className="btn-sm btn-secondary text-green-600">✓ Проведён</button>
+                      }} className="btn-sm btn-secondary text-green-600">{t('drawer.markDone')}</button>
                       <button onClick={async () => {
                         await sb.from('interviews').update({ status: 'cancelled' }).eq('id', iv.id);
                         loadAll();
-                      }} className="btn-sm btn-secondary text-red-400">✕ Отменить</button>
+                      }} className="btn-sm btn-secondary text-red-400">{t('drawer.markCancel')}</button>
                     </div>
                   )}
                 </div>
               ))}
               {canWrite && (
                 <form onSubmit={addInterview} className="space-y-2 pt-2 border-t border-slate-100">
-                  <h4 className="text-xs font-semibold text-slate-500">Запланировать собеседование</h4>
+                  <h4 className="text-xs font-semibold text-slate-500">{t('drawer.interviewFormTitle')}</h4>
                   <div className="grid grid-cols-2 gap-2">
                     <input type="date" className="input-field" value={intDate} onChange={e => setIntDate(e.target.value)} required />
                     <input type="time" className="input-field" value={intTime} onChange={e => setIntTime(e.target.value)} required />
                   </div>
                   <select className="input-field" value={intType} onChange={e => setIntType(e.target.value)}>
-                    <option value="phone">📞 Звонок</option>
-                    <option value="online">🎥 Видео</option>
-                    <option value="office">🏢 Офис</option>
+                    <option value="phone">📞 {t('interviews.formatPhone')}</option>
+                    <option value="online">🎥 {t('interviews.formatOnline')}</option>
+                    <option value="office">🏢 {t('interviews.formatOffice')}</option>
                   </select>
-                  <input className="input-field" placeholder="Заметка" value={intNote} onChange={e => setIntNote(e.target.value)} />
-                  <button type="submit" className="btn-primary btn-sm w-full justify-center">+ Добавить</button>
+                  <input className="input-field" placeholder={t('drawer.reminderNotePh')} value={intNote} onChange={e => setIntNote(e.target.value)} />
+                  <button type="submit" className="btn-primary btn-sm w-full justify-center">{t('drawer.addInterview')}</button>
                 </form>
               )}
             </div>
@@ -483,7 +486,7 @@ export default function CandidateDrawer({ onReload }) {
           {activeTab === 'timeline' && (
             <div className="space-y-3">
               {timeline.length === 0
-                ? <p className="text-xs text-slate-400">Нет активности</p>
+                ? <p className="text-xs text-slate-400">{t('drawer.noTimeline')}</p>
                 : timeline.map((e, i) => (
                   <div key={i} className="flex gap-2.5 items-start">
                     <div className={`flex-shrink-0 w-6 h-6 rounded-full ${e.color} flex items-center justify-center text-xs leading-none`}>
@@ -492,7 +495,7 @@ export default function CandidateDrawer({ onReload }) {
                     <div className="flex-1 min-w-0 pb-2 border-b border-slate-50">
                       <p className="text-xs text-slate-700 leading-snug break-words">{e.text}</p>
                       {e.sub && <p className="text-xs text-slate-400 mt-0.5">{e.sub}</p>}
-                      <p className="text-xs text-slate-300 mt-0.5">{fmtDate(e.ts)}</p>
+                      <p className="text-xs text-slate-300 mt-0.5">{fmtDate(e.ts, isRTL ? 'he-IL' : 'ru-RU')}</p>
                     </div>
                   </div>
                 ))

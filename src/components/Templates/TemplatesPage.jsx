@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useCanWrite } from '@/hooks/useCanWrite';
+import { useI18n } from '@/hooks/useI18n';
 import Modal from '@/components/common/Modal';
 
 const EMPTY = { name: '', subject: '', body: '' };
@@ -11,6 +12,7 @@ export default function TemplatesPage() {
   const currentOrgId  = useStore(s => s.currentOrgId);
   const addToast      = useStore(s => s.addToast);
   const canWrite      = useCanWrite();
+  const { t }         = useI18n();
 
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -21,8 +23,7 @@ export default function TemplatesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await sb.from('email_templates')
-      .select('*').order('name');
+    const { data, error } = await sb.from('email_templates').select('*').order('name');
     if (!error) setTemplates(data || []);
     setLoading(false);
   }, [currentUserId]);
@@ -30,13 +31,11 @@ export default function TemplatesPage() {
   useEffect(() => { if (currentOrgId) load(); }, [currentOrgId]);
 
   const openCreate = () => { setEditId(null); setForm(EMPTY); setModalOpen(true); };
-  const openEdit   = (t)  => { setEditId(t.id); setForm({ name: t.name, subject: t.subject, body: t.body }); setModalOpen(true); };
+  const openEdit   = (tmpl) => { setEditId(tmpl.id); setForm({ name: tmpl.name, subject: tmpl.subject, body: tmpl.body }); setModalOpen(true); };
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.name.trim()) { addToast('Укажи название шаблона', 'err'); return; }
-    if (!form.subject.trim()) { addToast('Укажи тему письма', 'err'); return; }
-
+    if (!form.name.trim() || !form.subject.trim()) { addToast(t('common.error'), 'err'); return; }
     const payload = { ...form, recruiter_id: currentUserId, org_id: currentOrgId };
     let error;
     if (editId) {
@@ -44,15 +43,15 @@ export default function TemplatesPage() {
     } else {
       ({ error } = await sb.from('email_templates').insert(payload));
     }
-    if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
-    addToast(editId ? 'Шаблон обновлён ✓' : 'Шаблон создан ✓');
+    if (error) { addToast(t('common.error') + ': ' + error.message, 'err'); return; }
+    addToast(t('templates.toastSaved') + ' ✓');
     setModalOpen(false);
     load();
   };
 
   const handleDelete = async (id) => {
     await sb.from('email_templates').delete().eq('id', id);
-    addToast('Удалено');
+    addToast(t('templates.toastDeleted'));
     if (preview?.id === id) setPreview(null);
     load();
   };
@@ -63,50 +62,49 @@ export default function TemplatesPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <p style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginBottom: 4 }}>
-            {templates.length} шаблонов
+            {templates.length} {t('templates.title').toLowerCase()}
           </p>
         </div>
         {canWrite && (
-          <button onClick={openCreate} className="btn-primary">+ Шаблон</button>
+          <button onClick={openCreate} className="btn-primary">{t('templates.addBtn')}</button>
         )}
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)', fontFamily: 'var(--font-sans)', fontSize: 13 }}>Загрузка…</div>
+        <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)', fontFamily: 'var(--font-sans)', fontSize: 13 }}>{t('common.loading')}</div>
       ) : templates.length === 0 ? (
         <div className="card" style={{ padding: 60, textAlign: 'center' }}>
           <p style={{ fontSize: 32, marginBottom: 12 }}>✉️</p>
-          <p style={{ fontFamily: 'var(--font-serif)', fontSize: 18, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>Нет шаблонов</p>
-          <p style={{ fontSize: 13, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>Создай шаблоны для быстрой отправки писем кандидатам</p>
+          <p style={{ fontFamily: 'var(--font-serif)', fontSize: 18, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{t('templates.noTemplates')}</p>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: preview ? '1fr 420px' : '1fr', gap: 20 }}>
           {/* List */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {templates.map(t => (
+            {templates.map(tmpl => (
               <div
-                key={t.id}
+                key={tmpl.id}
                 className="card"
-                style={{ padding: '16px 20px', cursor: 'pointer', border: preview?.id === t.id ? '1px solid var(--accent2)' : '1px solid var(--border)' }}
-                onClick={() => setPreview(preview?.id === t.id ? null : t)}
+                style={{ padding: '16px 20px', cursor: 'pointer', border: preview?.id === tmpl.id ? '1px solid var(--accent2)' : '1px solid var(--border)' }}
+                onClick={() => setPreview(preview?.id === tmpl.id ? null : tmpl)}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>{t.name}</p>
+                    <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>{tmpl.name}</p>
                     <p style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      Тема: {t.subject}
+                      {t('templates.fieldSubject')}: {tmpl.subject}
                     </p>
                   </div>
                   {canWrite && (
                     <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                       <button
-                        onClick={e => { e.stopPropagation(); openEdit(t); }}
+                        onClick={e => { e.stopPropagation(); openEdit(tmpl); }}
                         style={{ fontSize: 11, color: 'var(--accent2)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)', fontWeight: 600 }}
-                      >Изменить</button>
+                      >{t('common.edit')}</button>
                       <button
-                        onClick={e => { e.stopPropagation(); handleDelete(t.id); }}
+                        onClick={e => { e.stopPropagation(); handleDelete(tmpl.id); }}
                         style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)', fontWeight: 600 }}
-                      >Удалить</button>
+                      >{t('common.delete')}</button>
                     </div>
                   )}
                 </div>
@@ -117,18 +115,18 @@ export default function TemplatesPage() {
           {/* Preview panel */}
           {preview && (
             <div className="card" style={{ padding: 24, height: 'fit-content', position: 'sticky', top: 80 }}>
-              <p style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginBottom: 16 }}>Предпросмотр</p>
+              <p style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginBottom: 16 }}>{t('templates.variables')}</p>
               <p style={{ fontFamily: 'var(--font-serif)', fontSize: 16, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{preview.name}</p>
               <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
-                <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginBottom: 4 }}>Тема</p>
+                <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginBottom: 4 }}>{t('templates.fieldSubject')}</p>
                 <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'var(--font-sans)' }}>{preview.subject}</p>
               </div>
               <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 16 }}>
-                <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginBottom: 8 }}>Текст письма</p>
+                <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginBottom: 8 }}>{t('templates.fieldBody')}</p>
                 <p style={{ fontSize: 13, color: 'var(--ink2)', fontFamily: 'var(--font-sans)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{preview.body}</p>
               </div>
               <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 12 }}>
-                Переменные: <code style={{ background: 'var(--bg)', padding: '1px 4px', borderRadius: 4 }}>{'{{name}}'}</code>, <code style={{ background: 'var(--bg)', padding: '1px 4px', borderRadius: 4 }}>{'{{position}}'}</code>, <code style={{ background: 'var(--bg)', padding: '1px 4px', borderRadius: 4 }}>{'{{recruiter}}'}</code>
+                {t('templates.variables')} <code style={{ background: 'var(--bg)', padding: '1px 4px', borderRadius: 4 }}>{'{{name}}'}</code>, <code style={{ background: 'var(--bg)', padding: '1px 4px', borderRadius: 4 }}>{'{{position}}'}</code>, <code style={{ background: 'var(--bg)', padding: '1px 4px', borderRadius: 4 }}>{'{{recruiter}}'}</code>
               </p>
             </div>
           )}
@@ -136,35 +134,34 @@ export default function TemplatesPage() {
       )}
 
       {/* Modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? 'Редактировать шаблон' : 'Новый шаблон'}>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? t('templates.formTitle') : t('templates.formTitle')}>
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
-            <label className="form-label">Название шаблона *</label>
-            <input className="input-field" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Например: Первичный контакт" required />
+            <label className="form-label">{t('templates.fieldName')} *</label>
+            <input className="input-field" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
           </div>
           <div>
-            <label className="form-label">Тема письма *</label>
-            <input className="input-field" value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Приглашение на собеседование" required />
+            <label className="form-label">{t('templates.fieldSubject')} *</label>
+            <input className="input-field" value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required />
           </div>
           <div>
-            <label className="form-label">Текст письма</label>
+            <label className="form-label">{t('templates.fieldBody')}</label>
             <textarea
               className="input-field"
               rows={6}
               value={form.body}
               onChange={e => setForm(f => ({ ...f, body: e.target.value }))}
-              placeholder={"Здравствуйте, {{name}}!\n\nМы рассмотрели вашу кандидатуру на позицию {{position}}…"}
             />
             <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, fontFamily: 'var(--font-sans)' }}>
-              Используй {'{{name}}'}, {'{{position}}'}, {'{{recruiter}}'} — они подставятся автоматически при отправке
+              {t('templates.variables')} {'{{name}}'}, {'{{position}}'}, {'{{recruiter}}'}
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
             <button type="submit" className="btn-primary" style={{ flex: 1, justifyContent: 'center', padding: '10px 0' }}>
-              💾 Сохранить
+              💾 {t('common.save')}
             </button>
             <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary" style={{ padding: '10px 20px' }}>
-              Отмена
+              {t('common.cancel')}
             </button>
           </div>
         </form>
