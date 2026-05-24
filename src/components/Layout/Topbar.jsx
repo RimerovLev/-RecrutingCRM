@@ -12,8 +12,9 @@ const PAGE_TITLES = {
 };
 
 export default function Topbar() {
-  const activeView   = useStore(s => s.activeView);
+  const activeView    = useStore(s => s.activeView);
   const setActiveView = useStore(s => s.setActiveView);
+  const currentOrgName = useStore(s => s.currentOrgName);
 
   const title = PAGE_TITLES[activeView] || 'Дашборд';
   const today = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -27,7 +28,7 @@ export default function Topbar() {
       justifyContent: 'space-between',
       padding: '0 32px',
     }}>
-      {/* Left: title + date */}
+      {/* Left: title + date + org */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
         <h2 style={{
           fontFamily: 'var(--font-serif)', fontSize: 22, fontWeight: 700,
@@ -36,6 +37,15 @@ export default function Topbar() {
         <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>
           {today}
         </span>
+        {currentOrgName && (
+          <span style={{
+            fontSize: 10, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase',
+            color: 'var(--accent2)', fontFamily: 'var(--font-sans)',
+            background: 'rgba(26,92,232,0.08)', padding: '2px 8px', borderRadius: 999,
+          }}>
+            {currentOrgName}
+          </span>
+        )}
       </div>
 
       {/* Right: search + bell + CTA */}

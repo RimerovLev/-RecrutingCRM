@@ -21,6 +21,7 @@ import RemindersPage   from '@/components/Reminders/RemindersPage';
 import InterviewsPage  from '@/components/Interviews/InterviewsPage';
 import AdminPage       from '@/components/Admin/AdminPage';
 import TemplatesPage   from '@/components/Templates/TemplatesPage';
+import OnboardingPage  from '@/components/Onboarding/OnboardingPage';
 
 // Common
 import ToastContainer from '@/components/common/Toast';
@@ -41,8 +42,10 @@ async function loadProfile(userId) {
 
 export default function App() {
   const currentUserId     = useStore(s => s.currentUserId);
+  const currentOrgId      = useStore(s => s.currentOrgId);
   const setCurrentUser    = useStore(s => s.setCurrentUser);
   const setCurrentProfile = useStore(s => s.setCurrentProfile);
+  const setCurrentOrgName = useStore(s => s.setCurrentOrgName);
   const clearAuth         = useStore(s => s.clearAuth);
   const activeView        = useStore(s => s.activeView);
   const isOnline          = useOffline();
@@ -62,6 +65,10 @@ export default function App() {
         try {
           const profile = await loadProfile(session.user.id);
           setCurrentProfile(profile);
+          if (profile?.org_id) {
+            const { data: org } = await sb.from('organizations').select('name').eq('id', profile.org_id).single();
+            if (org) setCurrentOrgName(org.name);
+          }
           if (profile?.role) {
             document.body.classList.remove('role-viewer', 'role-admin', 'role-recruiter');
             document.body.classList.add(`role-${profile.role}`);
@@ -116,6 +123,16 @@ export default function App() {
     return (
       <>
         <AuthPage />
+        <ToastContainer />
+      </>
+    );
+  }
+
+  // User logged in but hasn't created/joined an org yet
+  if (!currentOrgId) {
+    return (
+      <>
+        <OnboardingPage />
         <ToastContainer />
       </>
     );

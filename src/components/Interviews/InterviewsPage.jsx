@@ -37,6 +37,7 @@ function isSameDay(a, b) {
 
 export default function InterviewsPage() {
   const currentUserId = useStore(s => s.currentUserId);
+  const currentOrgId  = useStore(s => s.currentOrgId);
   const addToast    = useStore(s => s.addToast);
   const openDrawer  = useStore(s => s.openDrawer);
   const canWrite    = useCanWrite();
@@ -60,23 +61,21 @@ export default function InterviewsPage() {
     setLoading(true);
     const { data, error } = await sb.from('interviews')
       .select('*, candidates(id, full_name, email, phone)')
-      .eq('recruiter_id', currentUserId)
       .order('scheduled_at', { ascending: true });
     if (error) { addToast('Ошибка загрузки', 'err'); }
     else setInterviews(data || []);
     setLoading(false);
-  }, [currentUserId]);
+  }, []);
 
-  useEffect(() => { if (currentUserId) load(); }, [currentUserId]);
+  useEffect(() => { if (currentOrgId) load(); }, [currentOrgId]);
 
   const loadCandidates = useCallback(async () => {
     const { data } = await sb.from('candidates')
       .select('id, full_name, email')
-      .eq('recruiter_id', currentUserId)
       .neq('status', 'archive')
       .order('full_name');
     setCandidates(data || []);
-  }, [currentUserId]);
+  }, []);
 
   const openCreate = () => {
     loadCandidates();
@@ -110,6 +109,7 @@ export default function InterviewsPage() {
     const { error } = await sb.from('interviews').insert({
       candidate_id: form.candidate_id,
       recruiter_id: currentUserId,
+      org_id: currentOrgId,
       scheduled_at: scheduledAt,
       format: form.format,
       notes: form.notes.trim() || null,

@@ -6,6 +6,8 @@ export const useStore = create((set, get) => ({
   currentUserEmail:   null,
   currentProfileRole: 'recruiter',
   currentProfileName: null,
+  currentOrgId:       null,
+  currentOrgName:     null,
 
   setCurrentUser: (u) => set({
     currentUserId:    u?.id    ?? null,
@@ -14,10 +16,13 @@ export const useStore = create((set, get) => ({
   setCurrentProfile: (p) => set({
     currentProfileRole: p?.role      ?? 'recruiter',
     currentProfileName: p?.full_name ?? null,
+    currentOrgId:       p?.org_id    ?? null,
   }),
+  setCurrentOrgName: (name) => set({ currentOrgName: name ?? null }),
   clearAuth: () => set({
     currentUserId: null, currentUserEmail: null,
     currentProfileRole: 'recruiter', currentProfileName: null,
+    currentOrgId: null, currentOrgName: null,
   }),
 
   // ── Candidates ───────────────────────────────────────────────────

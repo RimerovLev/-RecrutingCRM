@@ -20,6 +20,7 @@ export default function VacanciesPage() {
   const allVacancies   = useStore(s => s.allVacancies);
   const setAllVacancies = useStore(s => s.setAllVacancies);
   const currentUserId  = useStore(s => s.currentUserId);
+  const currentOrgId   = useStore(s => s.currentOrgId);
   const canWrite       = useCanWrite();
   const addToast       = useStore(s => s.addToast);
   const setKanban      = useStore(s => s.setKanbanVacancy);
@@ -33,19 +34,18 @@ export default function VacanciesPage() {
   const load = useCallback(async () => {
     const { data, error } = await sb.from('vacancies')
       .select('*, candidacies(count)')
-      .eq('recruiter_id', currentUserId)
       .order('created_at', { ascending: false });
     if (error) {
-      const cached = cacheGet(LS.vacancies + '_' + currentUserId);
+      const cached = cacheGet(LS.vacancies);
       if (cached) { setAllVacancies(cached); addToast('📴 Кэшированные данные', 'warn'); }
       else addToast('Ошибка загрузки вакансий', 'err');
     } else {
-      cacheSet(LS.vacancies + '_' + currentUserId, data || []);
+      cacheSet(LS.vacancies, data || []);
       setAllVacancies(data || []);
     }
-  }, [currentUserId]);
+  }, []);
 
-  useEffect(() => { if (currentUserId) load(); }, [currentUserId]);
+  useEffect(() => { if (currentOrgId) load(); }, [currentOrgId]);
 
   const openCreate = () => { setForm(EMPTY_VAC); setEditId(null); setModalOpen(true); };
 
@@ -81,6 +81,7 @@ export default function VacanciesPage() {
       ({ error } = await sb.from('vacancies').update(payload).eq('id', editId));
     } else {
       payload.recruiter_id = currentUserId;
+      payload.org_id = currentOrgId;
       ({ error } = await sb.from('vacancies').insert(payload));
     }
     setSaving(false);

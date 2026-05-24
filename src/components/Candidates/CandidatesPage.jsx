@@ -43,6 +43,7 @@ export default function CandidatesPage() {
   const allVacancies     = useStore(s => s.allVacancies);
   const setAllVacancies  = useStore(s => s.setAllVacancies);
   const currentUserId    = useStore(s => s.currentUserId);
+  const currentOrgId     = useStore(s => s.currentOrgId);
   const drawerOpen       = useStore(s => s.drawerOpen);
   const openDrawer       = useStore(s => s.openDrawer);
   const addToast         = useStore(s => s.addToast);
@@ -73,10 +74,10 @@ export default function CandidatesPage() {
 
   const loadVacancyOptions = useCallback(async () => {
     const { data } = await sb.from('vacancies')
-      .select('id, title').eq('recruiter_id', currentUserId).order('title');
+      .select('id, title').order('title');
     setVacancyOptions(data || []);
     if (!allVacancies.length) setAllVacancies(data || []);
-  }, [currentUserId]);
+  }, []);
 
   const load = useCallback(async (append = false, overrideQ = null) => {
     const q = overrideQ ?? searchQ;
@@ -84,7 +85,6 @@ export default function CandidatesPage() {
 
     let query = sb.from('candidates')
       .select('*', { count: 'exact' })
-      .eq('recruiter_id', currentUserId)
       .order('created_at', { ascending: false });
 
     if (isSearch) {
@@ -230,6 +230,7 @@ export default function CandidatesPage() {
       savedId = editId;
     } else {
       payload.recruiter_id = currentUserId;
+      payload.org_id = currentOrgId;
       const { data: newCand, error: ie } = await sb.from('candidates').insert(payload).select().single();
       error = ie; savedId = newCand?.id;
     }

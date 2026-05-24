@@ -8,6 +8,7 @@ const EMPTY = { name: '', subject: '', body: '' };
 
 export default function TemplatesPage() {
   const currentUserId = useStore(s => s.currentUserId);
+  const currentOrgId  = useStore(s => s.currentOrgId);
   const addToast      = useStore(s => s.addToast);
   const canWrite      = useCanWrite();
 
@@ -21,12 +22,12 @@ export default function TemplatesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const { data, error } = await sb.from('email_templates')
-      .select('*').eq('recruiter_id', currentUserId).order('name');
+      .select('*').order('name');
     if (!error) setTemplates(data || []);
     setLoading(false);
   }, [currentUserId]);
 
-  useEffect(() => { if (currentUserId) load(); }, [currentUserId]);
+  useEffect(() => { if (currentOrgId) load(); }, [currentOrgId]);
 
   const openCreate = () => { setEditId(null); setForm(EMPTY); setModalOpen(true); };
   const openEdit   = (t)  => { setEditId(t.id); setForm({ name: t.name, subject: t.subject, body: t.body }); setModalOpen(true); };
@@ -36,7 +37,7 @@ export default function TemplatesPage() {
     if (!form.name.trim()) { addToast('Укажи название шаблона', 'err'); return; }
     if (!form.subject.trim()) { addToast('Укажи тему письма', 'err'); return; }
 
-    const payload = { ...form, recruiter_id: currentUserId };
+    const payload = { ...form, recruiter_id: currentUserId, org_id: currentOrgId };
     let error;
     if (editId) {
       ({ error } = await sb.from('email_templates').update(payload).eq('id', editId));

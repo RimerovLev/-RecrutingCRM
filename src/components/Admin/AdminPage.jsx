@@ -16,6 +16,7 @@ function fmtDateTime(d) {
 
 const TABS = [
   { id: 'overview',    label: '📊 Сводка' },
+  { id: 'team',        label: '🏢 Команда' },
   { id: 'hr',         label: '👥 Рекрутеры' },
   { id: 'candidates', label: '👤 Кандидаты' },
   { id: 'vacancies',  label: '💼 Вакансии' },
@@ -135,10 +136,22 @@ function generatePDF(title, sections) {
 // ── Main component ───────────────────────────────────────────────
 export default function AdminPage() {
   const currentProfileRole = useStore(s => s.currentProfileRole);
+  const currentOrgId       = useStore(s => s.currentOrgId);
+  const currentOrgName     = useStore(s => s.currentOrgName);
   const addToast           = useStore(s => s.addToast);
-  const openDrawer     = useStore(s => s.openDrawer);
+  const openDrawer         = useStore(s => s.openDrawer);
 
   const [tab, setTab] = useState('overview');
+
+  // Team state
+  const [members,      setMembers]      = useState([]);
+  const [invites,      setInvites]      = useState([]);
+  const [teamLoading,  setTeamLoading]  = useState(false);
+  const [newInvite,    setNewInvite]    = useState(null); // { token, role, expires_at }
+  const [inviteRole,   setInviteRole]   = useState('recruiter');
+  const [creatingInvite, setCreatingInvite] = useState(false);
+  const [editMember,   setEditMember]   = useState(null);
+  const [editMemberRole, setEditMemberRole] = useState('recruiter');
   const [hrStats, setHrStats]         = useState([]);
   const [allCandidates, setAllCandidates] = useState([]);
   const [allVacancies, setAllVacancies]   = useState([]);
@@ -171,6 +184,44 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => { if (isAdmin) loadAll(); }, [isAdmin]);
+
+  const loadTeam = useCallback(async () => {
+    setTeamLoading(true);
+    const [{ data: mems }, { data: invs }] = await Promise.all([
+      sb.rpc('get_org_members'),
+      sb.from('org_invites').select('*').order('created_at', { ascending: false }),
+    ]);
+    setMembers(mems || []);
+    setInvites(invs || []);
+    setTeamLoading(false);
+  }, []);
+
+  useEffect(() => { if (tab === 'team' && isAdmin) loadTeam(); }, [tab, isAdmin]);
+
+  const handleCreateInvite = async () => {
+    setCreatingInvite(true);
+    const { data, error } = await sb.rpc('create_invite', { p_role: inviteRole });
+    setCreatingInvite(false);
+    if (error || data?.error) { addToast(data?.error || error.message, 'err'); return; }
+    setNewInvite(data);
+    loadTeam();
+  };
+
+  const handleRevokeInvite = async (id) => {
+    await sb.from('org_invites').delete().eq('id', id);
+    loadTeam();
+  };
+
+  const handleUpdateMemberRole = async () => {
+    const { data, error } = await sb.rpc('update_member_role', {
+      p_user_id: editMember.id,
+      p_role: editMemberRole,
+    });
+    if (error || data?.error) { addToast(data?.error || error.message, 'err'); return; }
+    addToast('Роль обновлена ✓');
+    setEditMember(null);
+    loadTeam();
+  };
 
   const updateRole = async () => {
     const { error } = await sb.from('profiles').update({ role: editRole }).eq('id', editHr.recruiter_id);
@@ -416,6 +467,163 @@ export default function AdminPage() {
                   </table>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ── TEAM ─────────────────────────────────────────────── */}
+          {tab === 'team' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+              {/* Org header */}
+              <div className="card" style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginBottom: 4 }}>Организация</p>
+                  <p style={{ fontFamily: 'var(--font-serif)', fontSize: 22, fontWeight: 700, color: 'var(--ink)' }}>{currentOrgName || '—'}</p>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 2 }}>{members.length} участников</p>
+                </div>
+              </div>
+
+              {/* Invite generator */}
+              <div className="card" style={{ padding: '20px 24px' }}>
+                <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 16 }}>Пригласить в команду</p>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <select
+                    value={inviteRole}
+                    onChange={e => setInviteRole(e.target.value)}
+                    className="input-field"
+                    style={{ width: 180, padding: '8px 12px' }}
+                  >
+                    <option value="recruiter">Рекрутер</option>
+                    <option value="viewer">Просмотр</option>
+                    <option value="admin">Администратор</option>
+                  </select>
+                  <button
+                    onClick={handleCreateInvite}
+                    disabled={creatingInvite}
+                    className="btn-primary"
+                  >
+                    {creatingInvite ? 'Генерируем…' : '🔗 Создать ссылку'}
+                  </button>
+                </div>
+
+                {newInvite && (
+                  <div style={{ marginTop: 16, background: 'var(--bg)', borderRadius: 10, padding: 16, border: '1px solid var(--border)' }}>
+                    <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginBottom: 8 }}>
+                      Ссылка действительна 7 дней · Роль: <strong>{newInvite.role}</strong>
+                    </p>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <code style={{
+                        flex: 1, padding: '8px 12px', background: 'var(--white)', borderRadius: 6,
+                        border: '1px solid var(--border)', fontSize: 12, wordBreak: 'break-all',
+                        fontFamily: 'monospace', color: 'var(--ink)',
+                      }}>
+                        {newInvite.token}
+                      </code>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(newInvite.token); addToast('Скопировано ✓'); }}
+                        className="btn-secondary"
+                        style={{ padding: '8px 12px', flexShrink: 0 }}
+                      >📋</button>
+                    </div>
+                    <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 8 }}>
+                      Коллега вставит этот код на экране приветствия → «Присоединиться по приглашению»
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Members list */}
+              <div className="card" style={{ overflow: 'hidden' }}>
+                <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                  Участники
+                </div>
+                {teamLoading ? (
+                  <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontFamily: 'var(--font-sans)', fontSize: 13 }}>Загрузка…</div>
+                ) : (
+                  members.map(m => {
+                    const initials = (m.full_name || 'U').slice(0, 2).toUpperCase();
+                    const roleColors = { admin: 'var(--accent)', recruiter: 'var(--accent2)', viewer: 'var(--muted)' };
+                    return (
+                      <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 24px', borderBottom: '1px solid var(--border)' }}>
+                        <div style={{
+                          width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                          background: 'linear-gradient(135deg, var(--accent), #b83410)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: '#fff',
+                        }}>{initials}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{m.full_name || '—'}</p>
+                          <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>
+                            {new Date(m.created_at).toLocaleDateString('ru-RU')}
+                          </p>
+                        </div>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 999,
+                          background: 'var(--bg)', color: roleColors[m.role] || 'var(--muted)',
+                          fontFamily: 'var(--font-sans)', textTransform: 'uppercase', letterSpacing: 1,
+                        }}>{m.role}</span>
+                        <button
+                          onClick={() => { setEditMember(m); setEditMemberRole(m.role); }}
+                          style={{ fontSize: 11, color: 'var(--accent2)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)', fontWeight: 600 }}
+                        >Изменить</button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Active invites */}
+              {invites.filter(i => !i.used && new Date(i.expires_at) > new Date()).length > 0 && (
+                <div className="card" style={{ overflow: 'hidden' }}>
+                  <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                    Активные приглашения
+                  </div>
+                  {invites.filter(i => !i.used && new Date(i.expires_at) > new Date()).map(inv => (
+                    <div key={inv.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 24px', borderBottom: '1px solid var(--border)' }}>
+                      <code style={{ flex: 1, fontSize: 11, fontFamily: 'monospace', color: 'var(--ink2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {inv.token}
+                      </code>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', flexShrink: 0 }}>{inv.role}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', flexShrink: 0 }}>
+                        до {new Date(inv.expires_at).toLocaleDateString('ru-RU')}
+                      </span>
+                      <button
+                        onClick={() => handleRevokeInvite(inv.id)}
+                        style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)', fontWeight: 600, flexShrink: 0 }}
+                      >Отозвать</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Edit member role modal */}
+              {editMember && (
+                <Modal open={!!editMember} onClose={() => setEditMember(null)} title={`Изменить роль — ${editMember.full_name}`}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div>
+                      <label className="form-label">Роль</label>
+                      <select
+                        value={editMemberRole}
+                        onChange={e => setEditMemberRole(e.target.value)}
+                        className="input-field"
+                      >
+                        <option value="recruiter">Рекрутер — может создавать и редактировать</option>
+                        <option value="viewer">Просмотр — только чтение</option>
+                        <option value="admin">Администратор — полный доступ</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <button onClick={handleUpdateMemberRole} className="btn-primary" style={{ flex: 1, justifyContent: 'center', padding: '10px 0' }}>
+                        Сохранить
+                      </button>
+                      <button onClick={() => setEditMember(null)} className="btn-secondary" style={{ padding: '10px 20px' }}>
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                </Modal>
+              )}
+
             </div>
           )}
 

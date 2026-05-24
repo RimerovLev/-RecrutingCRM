@@ -18,6 +18,7 @@ function fmtDay(d) {
 
 export default function RemindersPage() {
   const currentUserId = useStore(s => s.currentUserId);
+  const currentOrgId  = useStore(s => s.currentOrgId);
   const addToast    = useStore(s => s.addToast);
   const canWrite    = useCanWrite();
 
@@ -32,18 +33,17 @@ export default function RemindersPage() {
   const load = useCallback(async () => {
     const { data, error } = await sb.from('reminders')
       .select('*, candidates(full_name)')
-      .eq('recruiter_id', currentUserId)
       .order('created_at', { ascending: true });
     if (error) {
-      const cached = cacheGet(LS.reminders + '_' + currentUserId) || [];
+      const cached = cacheGet(LS.reminders) || [];
       setReminders(cached);
     } else {
-      cacheSet(LS.reminders + '_' + currentUserId, data || []);
+      cacheSet(LS.reminders, data || []);
       setReminders(data || []);
     }
-  }, [currentUserId]);
+  }, []);
 
-  useEffect(() => { if (currentUserId) load(); }, [currentUserId]);
+  useEffect(() => { if (currentOrgId) load(); }, [currentOrgId]);
 
   const displayList = (() => {
     let list = hideDone ? reminders.filter(r => !r.is_done) : [...reminders];
@@ -71,6 +71,7 @@ export default function RemindersPage() {
 
     const { error } = await sb.from('reminders').insert({
       recruiter_id: currentUserId,
+      org_id: currentOrgId,
       note: remNote.trim(),
       due_date: dueDate,
       is_done: false,
