@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useStore } from '@/store';
+import ChangePasswordModal from '@/components/Auth/ChangePasswordModal';
 
 const NAV_MAIN = [
   { view: 'dashboard',  icon: '▪', label: 'Дашборд' },
@@ -25,6 +27,8 @@ export default function Sidebar() {
   const currentProfileRole = useStore(s => s.currentProfileRole);
   const clearAuth          = useStore(s => s.clearAuth);
   const addToast           = useStore(s => s.addToast);
+
+  const [pwOpen, setPwOpen] = useState(false);
 
   const handleLogout = async () => {
     const { sb } = await import('@/lib/supabase');
@@ -167,6 +171,12 @@ export default function Sidebar() {
             onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.3)'}
           >Привязать Telegram</button>
           <button
+            onClick={() => setPwOpen(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'left', padding: 0, fontFamily: 'var(--font-sans)' }}
+            onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.7)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.3)'}
+          >Сменить пароль</button>
+          <button
             onClick={handleLogout}
             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'left', padding: 0, fontFamily: 'var(--font-sans)' }}
             onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.7)'}
@@ -174,6 +184,8 @@ export default function Sidebar() {
           >Выйти →</button>
         </div>
       </div>
+
+      <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
     </aside>
   );
 }
