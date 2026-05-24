@@ -2,30 +2,27 @@ import { useEffect, useState, useCallback } from 'react';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useCanWrite } from '@/hooks/useCanWrite';
+import { useI18n } from '@/hooks/useI18n';
 import Modal from '@/components/common/Modal';
 
 const TYPE_ICON  = { phone: '📞', online: '🎥', office: '🏢' };
-const TYPE_LABEL = { phone: 'Звонок', online: 'Видео', office: 'Офис' };
 const STATUS_BADGE = {
   scheduled: 'bg-blue-100 text-blue-700',
   done:      'bg-emerald-100 text-emerald-700',
   cancelled: 'bg-slate-100 text-slate-500',
 };
-const STATUS_LABEL = { scheduled: 'Запланировано', done: 'Проведено', cancelled: 'Отменено' };
 
-const DAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-
-function fmtDate(d) {
+function fmtDate(d, locale = 'ru-RU') {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return new Date(d).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
-function fmtTime(d) {
+function fmtTime(d, locale = 'ru-RU') {
   if (!d) return '';
-  return new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return new Date(d).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 }
-function fmtDateTime(d) {
+function fmtDateTime(d, locale = 'ru-RU') {
   if (!d) return '—';
-  return new Date(d).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return new Date(d).toLocaleString(locale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 function isSameDay(a, b) {
@@ -41,6 +38,7 @@ export default function InterviewsPage() {
   const addToast    = useStore(s => s.addToast);
   const openDrawer  = useStore(s => s.openDrawer);
   const canWrite    = useCanWrite();
+  const { t, isRTL } = useI18n();
 
   const [interviews, setInterviews]     = useState([]);
   const [loading, setLoading]           = useState(true);
@@ -62,7 +60,7 @@ export default function InterviewsPage() {
     const { data, error } = await sb.from('interviews')
       .select('*, candidates(id, full_name, email, phone)')
       .order('scheduled_at', { ascending: true });
-    if (error) { addToast('Ошибка загрузки', 'err'); }
+    if (error) { addToast(t('common.error'), 'err'); }
     else setInterviews(data || []);
     setLoading(false);
   }, []);
@@ -86,8 +84,8 @@ export default function InterviewsPage() {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.candidate_id) { addToast('Выбери кандидата', 'err'); return; }
-    if (!form.date || !form.time) { addToast('Укажи дату и время', 'err'); return; }
+    if (!form.candidate_id) { addToast(t('common.error'), 'err'); return; }
+    if (!form.date || !form.time) { addToast(t('common.error'), 'err'); return; }
 
     // Build UTC timestamp from local date+time (fix: без этого браузер трактует как UTC → сдвиг на +3)
     const [year, month, day] = form.date.split('-').map(Number);
@@ -102,7 +100,7 @@ export default function InterviewsPage() {
     });
     if (conflict) {
       const name = conflict.candidates?.full_name || 'другой кандидат';
-      addToast(`В ${form.time} уже запланировано: ${name}`, 'err');
+      addToast(`${form.time}: ${name}`, 'err');
       return;
     }
 
@@ -115,22 +113,22 @@ export default function InterviewsPage() {
       notes: form.notes.trim() || null,
       status: 'scheduled',
     });
-    if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
-    addToast('Собеседование создано ✓');
+    if (error) { addToast(t('common.error') + ': ' + error.message, 'err'); return; }
+    addToast(t('interviews.toastSaved') + ' ✓');
     setModalOpen(false);
     load();
   };
 
   const setStatus = async (id, status) => {
     const { error } = await sb.from('interviews').update({ status }).eq('id', id);
-    if (error) { addToast('Ошибка', 'err'); return; }
-    addToast(status === 'done' ? 'Отмечено как проведено ✓' : 'Отменено');
+    if (error) { addToast(t('common.error'), 'err'); return; }
+    addToast(status === 'done' ? t('interviews.toastUpdated') + ' ✓' : t('interviews.markCancel'));
     load();
   };
 
   const deleteInterview = async (id) => {
     await sb.from('interviews').delete().eq('id', id);
-    addToast('Удалено');
+    addToast(t('common.delete') + ' ✓');
     load();
   };
 
@@ -164,7 +162,7 @@ export default function InterviewsPage() {
       <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
         <div>
           <h2 className="page-title mb-0">
-            Интервью
+            {t('interviews.title')}
             {scheduledCount > 0 && (
               <span className="ml-2 bg-purple-500 text-white text-xs rounded-full px-2 py-0.5">
                 {scheduledCount}
@@ -173,14 +171,14 @@ export default function InterviewsPage() {
           </h2>
           {todayCount > 0 && (
             <p className="text-sm text-purple-600 font-medium mt-0.5">
-              🤝 Сегодня {todayCount} собеседование{todayCount > 1 ? 'я' : ''}
+              🤝 {t('common.today')}: {todayCount}
             </p>
           )}
         </div>
         <div className="flex gap-2 flex-wrap items-center">
           {/* View toggle */}
           <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
-            {[['list', '☰ Список'], ['calendar', '📅 Неделя']].map(([m, l]) => (
+            {[['list', '☰ ' + t('interviews.viewList')], ['calendar', '📅 ' + t('interviews.viewCal')]].map(([m, l]) => (
               <button key={m} onClick={() => setViewMode(m)}
                 className={`text-xs px-3 py-1 rounded-md font-semibold transition ${viewMode === m ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>
                 {l}
@@ -188,7 +186,7 @@ export default function InterviewsPage() {
             ))}
           </div>
           {canWrite && (
-            <button onClick={openCreate} className="btn-primary">+ Интервью</button>
+            <button onClick={openCreate} className="btn-primary">{t('interviews.addBtn')}</button>
           )}
         </div>
       </div>
@@ -196,7 +194,7 @@ export default function InterviewsPage() {
       {/* Status filter (list mode) */}
       {viewMode === 'list' && (
         <div className="flex gap-2 mb-4 flex-wrap">
-          {[['scheduled', '📅 Запланировано'], ['done', '✅ Проведено'], ['cancelled', '❌ Отменено'], ['all', 'Все']].map(([s, l]) => (
+          {[['scheduled', '📅 ' + t('interviews.statusPlanned')], ['done', '✅ ' + t('interviews.statusDone')], ['cancelled', '❌ ' + t('interviews.statusCancelled')], ['all', t('interviews.filterAll')]].map(([s, l]) => (
             <button key={s} onClick={() => setFilterStatus(s)}
               className={`text-xs px-3 py-1.5 rounded-lg font-semibold border transition ${filterStatus === s ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
               {l}
@@ -208,11 +206,11 @@ export default function InterviewsPage() {
       {/* ── List view ───────────────────────────────────────────── */}
       {viewMode === 'list' && (
         loading ? (
-          <div className="card p-10 text-center text-slate-400">Загрузка…</div>
+          <div className="card p-10 text-center text-slate-400">{t('common.loading')}</div>
         ) : filteredList.length === 0 ? (
           <div className="card p-10 text-center text-slate-400">
             <p className="text-4xl mb-3">🤝</p>
-            <p className="font-semibold">Нет интервью</p>
+            <p className="font-semibold">{t('interviews.noInterviews')}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -228,13 +226,13 @@ export default function InterviewsPage() {
                         {c.full_name || '—'}
                       </button>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${STATUS_BADGE[iv.status] || ''}`}>
-                        {STATUS_LABEL[iv.status] || iv.status}
+                        {iv.status === 'scheduled' ? t('interviews.statusPlanned') : iv.status === 'done' ? t('interviews.statusDone') : t('interviews.statusCancelled')}
                       </span>
-                      <span className="text-xs text-slate-400">{TYPE_LABEL[iv.format] || iv.format}</span>
-                      {isPast && <span className="text-xs text-red-500 font-semibold">⚠️ Не отмечено</span>}
+                      <span className="text-xs text-slate-400">{TYPE_ICON[iv.format]} {iv.format === 'phone' ? t('interviews.formatPhone') : iv.format === 'online' ? t('interviews.formatOnline') : t('interviews.formatOffice')}</span>
+                      {isPast && <span className="text-xs text-red-500 font-semibold">⚠️</span>}
                     </div>
                     <p className="text-sm text-slate-500 mt-1">
-                      📅 {fmtDate(iv.scheduled_at)} в {fmtTime(iv.scheduled_at)}
+                      📅 {fmtDate(iv.scheduled_at, isRTL ? 'he-IL' : 'ru-RU')} {fmtTime(iv.scheduled_at, isRTL ? 'he-IL' : 'ru-RU')}
                     </p>
                     {iv.notes && <p className="text-xs text-slate-400 mt-1 italic">{iv.notes}</p>}
                     {c.phone && <p className="text-xs text-slate-400 mt-0.5">☎ {c.phone}</p>}
@@ -243,11 +241,11 @@ export default function InterviewsPage() {
                     <div className="flex flex-col gap-1 shrink-0">
                       <button onClick={() => setStatus(iv.id, 'done')}
                         className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-1 rounded-lg transition">
-                        ✓ Провели
+                        {t('interviews.markDone')}
                       </button>
                       <button onClick={() => setStatus(iv.id, 'cancelled')}
                         className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 px-3 py-1 rounded-lg transition">
-                        × Отмена
+                        {t('interviews.markCancel')}
                       </button>
                     </div>
                   )}
@@ -267,14 +265,14 @@ export default function InterviewsPage() {
         <div className="card overflow-hidden">
           {/* Week nav */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-            <button onClick={() => setWeekOffset(w => w - 1)} className="btn-secondary btn-sm">← Пред.</button>
+            <button onClick={() => setWeekOffset(w => w - 1)} className="btn-secondary btn-sm">←</button>
             <span className="text-sm font-semibold text-slate-700">
-              {weekDays[0].toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })} —{' '}
-              {weekDays[6].toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })}
+              {weekDays[0].toLocaleDateString(isRTL ? 'he-IL' : 'ru-RU', { day: '2-digit', month: 'long' })} —{' '}
+              {weekDays[6].toLocaleDateString(isRTL ? 'he-IL' : 'ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })}
             </span>
             <div className="flex gap-2">
-              <button onClick={() => setWeekOffset(0)} className="btn-secondary btn-sm text-xs">Сегодня</button>
-              <button onClick={() => setWeekOffset(w => w + 1)} className="btn-secondary btn-sm">След. →</button>
+              <button onClick={() => setWeekOffset(0)} className="btn-secondary btn-sm text-xs">{t('common.today')}</button>
+              <button onClick={() => setWeekOffset(w => w + 1)} className="btn-secondary btn-sm">→</button>
             </div>
           </div>
 
@@ -288,7 +286,7 @@ export default function InterviewsPage() {
               return (
                 <div key={i} className={`flex flex-col ${isToday ? 'bg-indigo-50' : 'bg-white'}`}>
                   <div className={`text-center py-2 border-b border-slate-100 ${isToday ? 'bg-indigo-600 text-white' : ''}`}>
-                    <p className="text-xs font-semibold">{DAY_NAMES[day.getDay()]}</p>
+                    <p className="text-xs font-semibold">{day.toLocaleDateString(isRTL ? 'he-IL' : 'ru-RU', { weekday: 'short' })}</p>
                     <p className={`text-lg font-black ${isToday ? 'text-white' : 'text-slate-700'}`}>{day.getDate()}</p>
                   </div>
                   <div className="flex flex-col gap-1 p-1 flex-1">
@@ -306,7 +304,7 @@ export default function InterviewsPage() {
                           }`}
                         >
                           <div className="font-semibold truncate">{c.full_name || '—'}</div>
-                          <div className="text-xs opacity-70">{TYPE_ICON[iv.format]} {fmtTime(iv.scheduled_at)}</div>
+                          <div className="text-xs opacity-70">{TYPE_ICON[iv.format]} {fmtTime(iv.scheduled_at, isRTL ? 'he-IL' : 'ru-RU')}</div>
                         </button>
                       );
                     })}
@@ -319,14 +317,14 @@ export default function InterviewsPage() {
       )}
 
       {/* ── Create modal ─────────────────────────────────────────── */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Создать интервью">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={t('interviews.formTitle')}>
         <form onSubmit={handleSave} className="space-y-4">
           {/* Candidate search */}
           <div>
-            <label className="form-label">Кандидат *</label>
+            <label className="form-label">{t('interviews.fieldCandidate')}</label>
             <input
               className="input-field mb-2"
-              placeholder="Поиск кандидата…"
+              placeholder={t('kanban.searchLink')}
               value={candSearch}
               onChange={e => { setCandSearch(e.target.value); setForm(f => ({ ...f, candidate_id: '' })); }}
             />
@@ -341,7 +339,7 @@ export default function InterviewsPage() {
             ) : (
               <div className="max-h-40 overflow-y-auto space-y-0.5 border border-slate-200 rounded-lg">
                 {filteredCandidates.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-4">Нет кандидатов</p>
+                  <p className="text-xs text-slate-400 text-center py-4">{t('common.noData')}</p>
                 ) : filteredCandidates.map(c => (
                   <button type="button" key={c.id}
                     onClick={() => { setForm(f => ({ ...f, candidate_id: c.id })); setCandSearch(c.full_name); }}
@@ -357,12 +355,12 @@ export default function InterviewsPage() {
           {/* Date + Time */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">Дата *</label>
+              <label className="form-label">{t('interviews.fieldDate')}</label>
               <input type="date" className="input-field" value={form.date}
                 onChange={e => setForm(f => ({ ...f, date: e.target.value }))} required />
             </div>
             <div>
-              <label className="form-label">Время *</label>
+              <label className="form-label">{t('interviews.fieldTime')}</label>
               <input type="time" className="input-field" value={form.time}
                 onChange={e => setForm(f => ({ ...f, time: e.target.value }))} required />
             </div>
@@ -370,9 +368,9 @@ export default function InterviewsPage() {
 
           {/* Type */}
           <div>
-            <label className="form-label">Формат</label>
+            <label className="form-label">{t('interviews.fieldFormat')}</label>
             <div className="flex gap-2">
-              {Object.entries(TYPE_LABEL).map(([k, v]) => (
+              {[['phone', t('interviews.formatPhone')], ['online', t('interviews.formatOnline')], ['office', t('interviews.formatOffice')]].map(([k, v]) => (
                 <button type="button" key={k}
                   onClick={() => setForm(f => ({ ...f, format: k }))}
                   className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition ${
@@ -386,15 +384,14 @@ export default function InterviewsPage() {
 
           {/* Notes */}
           <div>
-            <label className="form-label">Заметки</label>
+            <label className="form-label">{t('interviews.fieldNotes')}</label>
             <textarea className="input-field" rows={2} value={form.notes}
-              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              placeholder="Ссылка на meet, адрес офиса…" />
+              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
 
           <div className="flex gap-3 pt-2">
-            <button type="submit" className="btn-primary flex-1 justify-center py-2.5">💾 Сохранить</button>
-            <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary px-6">Отмена</button>
+            <button type="submit" className="btn-primary flex-1 justify-center py-2.5">💾 {t('common.save')}</button>
+            <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary px-6">{t('common.cancel')}</button>
           </div>
         </form>
       </Modal>

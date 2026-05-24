@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
-import { STAGES, STAGE_LABELS } from '@/lib/config';
+import { useI18n } from '@/hooks/useI18n';
+import { STAGES } from '@/lib/config';
 import { isMissingTableError } from '@/lib/apiErrors';
 
 const DAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -31,17 +33,33 @@ function calcAvgInterviewDays(history) {
 
 // ── Metric Card ───────────────────────────────────────────────────
 function MetricCard({ label, value, sub, accentColor, delayClass, onClick }) {
+  const [hovered, setHovered] = useState(false);
   return (
     <div
       className={`card fade-up ${delayClass}`}
       onClick={onClick}
-      style={{ padding: '22px 24px', cursor: onClick ? 'pointer' : 'default', position: 'relative', overflow: 'hidden' }}
+      onMouseEnter={() => onClick && setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        padding: '18px 20px',
+        cursor: onClick ? 'pointer' : 'default',
+        position: 'relative',
+        overflow: 'hidden',
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        transform: hovered ? 'translateY(-2px)' : 'none',
+        boxShadow: hovered ? '0 8px 24px rgba(0,0,0,0.1)' : undefined,
+      }}
     >
       {/* Top accent line */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: accentColor, borderRadius: '2px 2px 0 0' }} />
-      <p style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12, fontFamily: 'var(--font-sans)' }}>{label}</p>
-      <p style={{ fontFamily: 'var(--font-serif)', fontSize: 36, fontWeight: 900, letterSpacing: -1, lineHeight: 1, color: 'var(--ink)' }}>{value}</p>
-      {sub && <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, fontFamily: 'var(--font-sans)' }}>{sub}</p>}
+      <p style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10, fontFamily: 'var(--font-sans)' }}>{label}</p>
+      <p style={{ fontFamily: 'var(--font-serif)', fontSize: 32, fontWeight: 900, letterSpacing: -1, lineHeight: 1, color: 'var(--ink)' }}>{value}</p>
+      {sub && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+          <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>{sub}</p>
+          {onClick && <span style={{ fontSize: 10, color: accentColor, fontFamily: 'var(--font-sans)', fontWeight: 600, opacity: hovered ? 1 : 0, transition: 'opacity 0.15s' }}>→</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -52,7 +70,7 @@ const STAGE_COLORS_NEW = {
   interview: '#8b5cf6', offer: 'var(--green)', rejected: 'var(--accent)',
 };
 
-function FunnelBars({ stageCounts }) {
+function FunnelBars({ stageCounts, t, isRTL }) {
   const funnelStages = STAGES.filter(s => s !== 'rejected');
   const maxCount = Math.max(1, ...funnelStages.map(s => stageCounts[s] || 0));
   return (
@@ -63,9 +81,9 @@ function FunnelBars({ stageCounts }) {
         const conv = i > 0 && prev > 0 ? Math.round(count / prev * 100) : null;
         const pct = Math.round(count / maxCount * 100);
         return (
-          <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 11, color: 'var(--muted)', width: 70, textAlign: 'right', fontFamily: 'var(--font-sans)', flexShrink: 0 }}>
-              {STAGE_LABELS[stage]}
+          <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: 10, flexDirection: isRTL ? 'row-reverse' : 'row' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)', width: 70, textAlign: isRTL ? 'left' : 'right', fontFamily: 'var(--font-sans)', flexShrink: 0 }}>
+              {t(`stages.${stage}`)}
             </span>
             <div style={{ flex: 1, position: 'relative', height: 26, background: 'var(--bg)', borderRadius: 6, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${pct}%`, background: STAGE_COLORS_NEW[stage], borderRadius: 6, transition: 'width 0.5s ease' }} />
@@ -85,9 +103,8 @@ function FunnelBars({ stageCounts }) {
 
 export default function DashboardPage() {
   const currentUserId = useStore(s => s.currentUserId);
-  const addToast      = useStore(s => s.addToast);
-  const setActiveView = useStore(s => s.setActiveView);
-  const allCandidates = useStore(s => s.allCandidates);
+  const navigate      = useNavigate();
+  const { t, isRTL }  = useI18n();
 
   const [stats, setStats]           = useState({ candidates: 0, vacOpen: 0, vacClosed: 0, reminders: 0, avgIntDays: null });
   const [stageCounts, setStageCounts] = useState(Object.fromEntries(STAGES.map(s => [s, 0])));
@@ -190,73 +207,74 @@ export default function DashboardPage() {
   const barHeights = [30, 45, 35, 55, 40, 60, 50, 45, 65, 70, 55, 80, 90, 75, 100];
 
   return (
-    <div style={{ padding: '28px 32px', minHeight: '100%' }}>
+    <div className="p-4 md:p-7" style={{ minHeight: '100%' }}>
 
       {/* ── Metric cards ───────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-7">
         <MetricCard
-          label="Кандидатов"
+          label={t('dashboard.candidates')}
           value={stats.candidates}
-          sub="активных в базе"
+          sub={t('dashboard.candidatesSub')}
           accentColor="var(--accent)"
           delayClass="delay-1"
-          onClick={() => setActiveView('candidates')}
+          onClick={() => navigate('/candidates')}
         />
         <MetricCard
-          label="Открытых вакансий"
+          label={t('dashboard.vacOpen')}
           value={stats.vacOpen}
-          sub="требуют закрытия"
+          sub={t('dashboard.vacOpenSub')}
           accentColor="var(--accent2)"
           delayClass="delay-2"
-          onClick={() => setActiveView('vacancies')}
+          onClick={() => navigate('/vacancies')}
         />
         <MetricCard
-          label="Напоминаний"
+          label={t('dashboard.reminders')}
           value={stats.reminders}
-          sub="активных задач"
+          sub={t('dashboard.remindersSub')}
           accentColor="var(--green)"
           delayClass="delay-3"
-          onClick={() => setActiveView('reminders')}
+          onClick={() => navigate('/reminders')}
         />
         <MetricCard
-          label="Ср. дней до оффера"
-          value={stats.avgIntDays != null ? `${stats.avgIntDays}д` : '—'}
-          sub="среднее по воронке"
+          label={t('dashboard.avgDays')}
+          value={stats.avgIntDays != null ? `${stats.avgIntDays}${isRTL ? 'י' : 'д'}` : '—'}
+          sub={t('dashboard.avgDaysSub')}
           accentColor="var(--amber)"
           delayClass="delay-4"
+          onClick={() => navigate('/kanban')}
         />
       </div>
 
       {/* ── Main grid: Funnel + Side panel ────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, marginBottom: 20 }}>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 mb-5">
 
         {/* Funnel card */}
         <div className="card fade-up delay-5">
-          <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Воронка найма</h3>
+          <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexDirection: isRTL ? 'row-reverse' : 'row' }}>
+            <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{t('dashboard.funnel')}</h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <select
                 value={funnelVacId}
                 onChange={e => filterFunnel(e.target.value)}
                 style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', fontFamily: 'var(--font-sans)', outline: 'none' }}
               >
-                <option value="">Все вакансии</option>
-                {vacancies.map(v => <option key={v.id} value={v.id}>{v.title || 'Вакансия'}</option>)}
+                <option value="">{t('dashboard.allVacancies')}</option>
+                {vacancies.map(v => <option key={v.id} value={v.id}>{v.title || t('nav.vacancies')}</option>)}
               </select>
               <button
-                onClick={() => setActiveView('kanban')}
+                onClick={() => navigate('/kanban')}
                 style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
-              >Открыть →</button>
+              >{t('dashboard.openKanban')}</button>
             </div>
           </div>
           <div style={{ padding: 24 }}>
-            <FunnelBars stageCounts={stageCounts} />
+            <FunnelBars stageCounts={stageCounts} t={t} isRTL={isRTL} />
           </div>
 
           {/* Mini bar chart */}
           <div style={{ borderTop: '1px solid var(--border)', padding: '0 24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0 8px' }}>
-              <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-sans)', letterSpacing: 1 }}>Активность по неделям</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0 8px', flexDirection: isRTL ? 'row-reverse' : 'row' }}>
+              <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-sans)', letterSpacing: 1 }}>{t('dashboard.activityWeeks')}</span>
               <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>2026</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'flex-end', height: 40, gap: 4, paddingBottom: 16 }}>
@@ -279,13 +297,13 @@ export default function DashboardPage() {
 
           {/* Today's interviews */}
           <div className="card fade-up delay-6">
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>Сегодня</h3>
-              <button onClick={() => setActiveView('interviews')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Все →</button>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexDirection: isRTL ? 'row-reverse' : 'row' }}>
+              <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{t('dashboard.todayTitle')}</h3>
+              <button onClick={() => navigate('/interviews')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>{t('dashboard.allInterviews')}</button>
             </div>
             <div>
               {todayInterviews.length === 0 ? (
-                <p style={{ padding: '16px 20px', fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>Сегодня интервью нет</p>
+                <p style={{ padding: '16px 20px', fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>{t('dashboard.noTodayIv')}</p>
               ) : todayInterviews.slice(0, 3).map(iv => {
                 const dt = new Date(iv.scheduled_at);
                 const hour = dt.getHours();
@@ -308,7 +326,7 @@ export default function DashboardPage() {
                         {iv.candidates?.full_name || '—'}
                       </p>
                       <p style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)', marginTop: 2 }}>
-                        {iv.format === 'phone' ? 'Звонок' : iv.format === 'online' ? 'Видео' : 'Офис'} · {iv.notes || '—'}
+                        {iv.format === 'phone' ? t('dashboard.call') : iv.format === 'online' ? t('dashboard.video') : t('dashboard.office')} · {iv.notes || '—'}
                       </p>
                     </div>
                   </div>
@@ -319,12 +337,12 @@ export default function DashboardPage() {
 
           {/* Reminders */}
           <div className="card fade-up delay-6">
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>Напоминания</h3>
-              <button onClick={() => setActiveView('reminders')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>Все →</button>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexDirection: isRTL ? 'row-reverse' : 'row' }}>
+              <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{t('dashboard.remindersTitle')}</h3>
+              <button onClick={() => navigate('/reminders')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>{t('dashboard.allReminders')}</button>
             </div>
             {dashRems.length === 0 ? (
-              <p style={{ padding: '16px 20px', fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>Нет активных задач</p>
+              <p style={{ padding: '16px 20px', fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>{t('dashboard.noReminders')}</p>
             ) : dashRems.slice(0, 4).map(r => {
               const overdue = r.due_date && new Date(r.due_date) < today;
               return (
@@ -346,12 +364,12 @@ export default function DashboardPage() {
 
       {/* ── Bottom grid: Week calendar ─────────────────────────────── */}
       <div className="card fade-up delay-7">
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Интервью на неделе</h3>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexDirection: isRTL ? 'row-reverse' : 'row' }}>
+          <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{t('dashboard.weekTitle')}</h3>
           <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>{weekLabel}</span>
         </div>
         {interviews.length === 0 ? (
-          <p style={{ padding: '20px 24px', fontSize: 13, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>На этой неделе интервью нет</p>
+          <p style={{ padding: '20px 24px', fontSize: 13, color: 'var(--muted)', fontFamily: 'var(--font-sans)' }}>{t('dashboard.noWeekIv')}</p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', minWidth: 500 }}>

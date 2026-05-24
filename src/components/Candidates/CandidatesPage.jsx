@@ -2,12 +2,14 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useCanWrite } from '@/hooks/useCanWrite';
+import { useI18n } from '@/hooks/useI18n';
 import {
   STAGES, STAGE_LABELS, STAGE_COLORS, STATUS_LABELS, STATUS_BADGE, PAGE_SIZE,
 } from '@/lib/config';
 import { cacheSet, cacheGet, LS, queueOp } from '@/hooks/useOffline';
 import Modal from '@/components/common/Modal';
 import CandidateDrawer from '@/components/Drawer/CandidateDrawer';
+import ImportModal from '@/components/Candidates/ImportModal';
 
 function fmtDay(d) {
   if (!d) return '—';
@@ -48,6 +50,7 @@ export default function CandidatesPage() {
   const openDrawer       = useStore(s => s.openDrawer);
   const addToast         = useStore(s => s.addToast);
   const canWrite         = useCanWrite();
+  const { t }            = useI18n();
 
   // Filters state
   const [filterStatus, setFilterStatus] = useState('');
@@ -69,6 +72,9 @@ export default function CandidatesPage() {
 
   // Bulk vacancy modal
   const [bulkVacModal, setBulkVacModal] = useState(false);
+
+  // Import modal
+  const [importOpen, setImportOpen] = useState(false);
 
   const searchTimer = useRef(null);
 
@@ -305,13 +311,16 @@ export default function CandidatesPage() {
     <div className="p-4 md:p-6 pb-20 md:pb-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-4 gap-3">
-        <h2 className="page-title mb-0">Кандидаты</h2>
+        <h2 className="page-title mb-0">{t('candidates.title')}</h2>
         <div className="flex gap-2 flex-wrap">
           {canWrite && (
-            <button onClick={openCreate} className="btn-primary">+ Кандидат</button>
+            <>
+              <button onClick={openCreate} className="btn-primary">{t('candidates.addBtn')}</button>
+              <button onClick={() => setImportOpen(true)} className="btn-secondary">{t('candidates.importBtn')}</button>
+            </>
           )}
           <button onClick={() => setShowFilters(v => !v)} className={showFilters ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}>
-            🔍 Фильтры
+            {t('candidates.filtersBtn')}
           </button>
         </div>
       </div>
@@ -320,7 +329,7 @@ export default function CandidatesPage() {
       <div className="mb-3">
         <input
           className="input-field"
-          placeholder="Поиск по имени, телефону, должности…"
+          placeholder={t('candidates.searchPlaceholder')}
           value={searchInput}
           onChange={handleSearchChange}
         />
@@ -330,38 +339,38 @@ export default function CandidatesPage() {
       {showFilters && (
         <div className="card p-4 mb-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           <select className="input-field" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-            <option value="">Все статусы</option>
-            <option value="active">Активный</option>
-            <option value="in_work">В работе</option>
-            <option value="archive">Архив</option>
+            <option value="">{t('candidates.allStatuses')}</option>
+            <option value="active">{t('status.active')}</option>
+            <option value="in_work">{t('status.in_work')}</option>
+            <option value="archive">{t('status.archive')}</option>
           </select>
           <select className="input-field" value={filterCar} onChange={e => setFilterCar(e.target.value)}>
-            <option value="">Авто: любой</option>
-            <option value="Да">Есть авто</option>
-            <option value="Нет">Нет авто</option>
+            <option value="">{t('candidates.allCar')}</option>
+            <option value="Да">{t('candidates.hasCar')}</option>
+            <option value="Нет">{t('candidates.noCar')}</option>
           </select>
-          <input className="input-field" placeholder="Район проживания" value={filterDistrict} onChange={e => setFilterDistrict(e.target.value)} />
+          <input className="input-field" placeholder={t('candidates.districtPlaceholder')} value={filterDistrict} onChange={e => setFilterDistrict(e.target.value)} />
           <input type="date" className="input-field" value={filterDate} onChange={e => setFilterDate(e.target.value)} />
           <select className="input-field" value={filterVacancy} onChange={e => setFilterVacancy(e.target.value)}>
-            <option value="">Все вакансии</option>
+            <option value="">{t('candidates.allVacancies')}</option>
             {vacancyOptions.map(v => <option key={v.id} value={v.id}>{v.title}</option>)}
           </select>
-          <button onClick={resetFilters} className="btn-secondary col-span-2 md:col-span-1">✕ Сбросить</button>
+          <button onClick={resetFilters} className="btn-secondary col-span-2 md:col-span-1">{t('common.resetFilters')}</button>
         </div>
       )}
 
       {/* Counter */}
       <p className="text-xs text-slate-400 mb-3">
-        {searchQ ? `Найдено: ${displayList.length}` : `Показано ${allCandidates.length} из ${candidatesTotal}`}
+        {searchQ ? `${t('candidates.found')} ${displayList.length}` : `${t('candidates.shown')} ${allCandidates.length} ${t('candidates.of')} ${candidatesTotal}`}
       </p>
 
       {/* Bulk bar */}
       {selectedIds.size > 0 && (
         <div className="card bg-indigo-50 border border-indigo-200 p-3 mb-4 flex items-center gap-3 flex-wrap">
-          <span className="text-sm font-semibold text-indigo-700">Выбрано: {selectedIds.size}</span>
-          <button onClick={bulkDelete} className="btn-sm btn-secondary text-red-500 hover:bg-red-50">🗑️ Удалить</button>
-          <button onClick={() => setBulkVacModal(true)} className="btn-sm btn-secondary">💼 Привязать к вакансии</button>
-          <button onClick={clearSelectedIds} className="btn-sm btn-secondary ml-auto">✕ Снять выбор</button>
+          <span className="text-sm font-semibold text-indigo-700">{t('common.selected')}: {selectedIds.size}</span>
+          <button onClick={bulkDelete} className="btn-sm btn-secondary text-red-500 hover:bg-red-50">{t('candidates.bulkDelete')}</button>
+          <button onClick={() => setBulkVacModal(true)} className="btn-sm btn-secondary">{t('candidates.bulkVacancy')}</button>
+          <button onClick={clearSelectedIds} className="btn-sm btn-secondary ml-auto">{t('candidates.clearSelection')}</button>
         </div>
       )}
 
@@ -381,18 +390,18 @@ export default function CandidatesPage() {
                   />
                 </th>
                 <th className="th w-8"></th>
-                <SortTh field="full_name" label="Кандидат" />
-                <th className="th">Статус</th>
-                <SortTh field="phone" label="Телефон" />
-                <SortTh field="district_residence" label="Р. прожив." />
-                <SortTh field="district_work" label="Р. работы" />
-                <th className="th">Авто</th>
-                <SortTh field="position" label="Должность" />
-                <SortTh field="resume_source" label="Источник" />
-                <th className="th">Контакт</th>
-                <th className="th">Профиль</th>
-                <th className="th">Резюме</th>
-                <th className="th">Действия</th>
+                <SortTh field="full_name" label={t('candidates.colName')} />
+                <th className="th">{t('candidates.colStatus')}</th>
+                <SortTh field="phone" label={t('candidates.colPhone')} />
+                <SortTh field="district_residence" label={t('candidates.colDistRes')} />
+                <SortTh field="district_work" label={t('candidates.colDistWork')} />
+                <th className="th">{t('candidates.colCar')}</th>
+                <SortTh field="position" label={t('candidates.colPosition')} />
+                <SortTh field="resume_source" label={t('candidates.colSource')} />
+                <th className="th">{t('candidates.colContact')}</th>
+                <th className="th">{t('candidates.colProfile')}</th>
+                <th className="th">{t('candidates.colResume')}</th>
+                <th className="th">{t('candidates.colActions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -426,9 +435,9 @@ export default function CandidatesPage() {
                         onChange={e => setStatus(c.id, e.target.value)}
                         className={`text-xs font-semibold px-2 py-0.5 rounded-full border-0 cursor-pointer ${statusCls}`}
                       >
-                        <option value="active">Активный</option>
-                        <option value="in_work">В работе</option>
-                        <option value="archive">Архив</option>
+                        <option value="active">{t('status.active')}</option>
+                        <option value="in_work">{t('status.in_work')}</option>
+                        <option value="archive">{t('status.archive')}</option>
                       </select>
                     </td>
                     <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{c.phone || '—'}</td>
@@ -531,94 +540,97 @@ export default function CandidatesPage() {
       {/* Drawer */}
       {drawerOpen && <CandidateDrawer onReload={load} />}
 
+      {/* Import CSV modal */}
+      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={() => { load(); }} />
+
       {/* Candidate modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? 'Редактировать кандидата' : 'Добавить кандидата'} wide>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? t('candidates.formEditTitle') : t('candidates.formAddTitle')} wide>
         <form onSubmit={handleSave} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="form-label">Имя *</label>
+              <label className="form-label">{t('candidates.fieldName')}</label>
               <input className="input-field" value={form.full_name} onChange={e => setForm(f => ({...f, full_name: e.target.value}))} required />
             </div>
             <div>
-              <label className="form-label">Телефон</label>
+              <label className="form-label">{t('candidates.fieldPhone')}</label>
               <input className="input-field" value={form.phone} onChange={e => setForm(f => ({...f, phone: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Email</label>
+              <label className="form-label">{t('candidates.fieldEmail')}</label>
               <input type="email" className="input-field" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Должность</label>
+              <label className="form-label">{t('candidates.fieldPosition')}</label>
               <input className="input-field" value={form.position} onChange={e => setForm(f => ({...f, position: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Опыт</label>
+              <label className="form-label">{t('candidates.fieldExperience')}</label>
               <input className="input-field" value={form.experience} onChange={e => setForm(f => ({...f, experience: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Р. проживания</label>
+              <label className="form-label">{t('candidates.fieldDistRes')}</label>
               <input className="input-field" value={form.district_residence} onChange={e => setForm(f => ({...f, district_residence: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Р. работы</label>
+              <label className="form-label">{t('candidates.fieldDistWork')}</label>
               <input className="input-field" value={form.district_work} onChange={e => setForm(f => ({...f, district_work: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Автомобиль</label>
+              <label className="form-label">{t('candidates.fieldCar')}</label>
               <select className="input-field" value={form.has_car} onChange={e => setForm(f => ({...f, has_car: e.target.value}))}>
                 <option value="">—</option>
-                <option value="Да">Да</option>
-                <option value="Нет">Нет</option>
+                <option value="Да">{t('common.yes')}</option>
+                <option value="Нет">{t('common.no')}</option>
               </select>
             </div>
             <div>
-              <label className="form-label">Источник</label>
+              <label className="form-label">{t('candidates.fieldSource')}</label>
               <input className="input-field" value={form.resume_source} onChange={e => setForm(f => ({...f, resume_source: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Статус</label>
+              <label className="form-label">{t('candidates.fieldStatus')}</label>
               <select className="input-field" value={form.status} onChange={e => setForm(f => ({...f, status: e.target.value}))}>
-                <option value="active">Активный</option>
-                <option value="in_work">В работе</option>
-                <option value="archive">Архив</option>
+                <option value="active">{t('status.active')}</option>
+                <option value="in_work">{t('status.in_work')}</option>
+                <option value="archive">{t('status.archive')}</option>
               </select>
             </div>
             <div>
-              <label className="form-label">Желаемая з/п</label>
+              <label className="form-label">{t('candidates.fieldSalary')}</label>
               <input type="number" className="input-field" value={form.salary_wish} onChange={e => setForm(f => ({...f, salary_wish: e.target.value}))} />
             </div>
           </div>
 
           <div>
-            <label className="form-label">Вакансия</label>
+            <label className="form-label">{t('candidates.fieldVacancy')}</label>
             <select className="input-field" value={form.vacancy_id} onChange={e => setForm(f => ({...f, vacancy_id: e.target.value}))}>
-              <option value="">— Без вакансии —</option>
+              <option value="">{t('candidates.noVacancy')}</option>
               {vacancyOptions.map(v => <option key={v.id} value={v.id}>{v.title}</option>)}
             </select>
           </div>
 
           <div>
-            <label className="form-label">Контакт-статус</label>
+            <label className="form-label">{t('candidates.fieldContact')}</label>
             <input className="input-field" value={form.contact_status} onChange={e => setForm(f => ({...f, contact_status: e.target.value}))} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">Ссылка на профиль</label>
+              <label className="form-label">{t('candidates.fieldLink')}</label>
               <input className="input-field" value={form.candidate_link} onChange={e => setForm(f => ({...f, candidate_link: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Ссылка на резюме</label>
+              <label className="form-label">{t('candidates.fieldResumeUrl')}</label>
               <input className="input-field" value={form.resume_url} onChange={e => setForm(f => ({...f, resume_url: e.target.value}))} />
             </div>
           </div>
           <div>
-            <label className="form-label">Заметки</label>
+            <label className="form-label">{t('candidates.fieldNotes')}</label>
             <textarea className="input-field" rows={3} value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} />
           </div>
 
           {/* Tags */}
           <div>
-            <label className="form-label">Теги</label>
+            <label className="form-label">{t('candidates.fieldTags')}</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {currentTags.map(t => (
                 <span key={t} className="tag-chip">
@@ -652,15 +664,15 @@ export default function CandidatesPage() {
 
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={saving} className="btn-primary flex-1 justify-center py-2.5">
-              {saving ? 'Сохранение…' : '💾 Сохранить'}
+              {saving ? t('common.loading') : `💾 ${t('common.save')}`}
             </button>
-            <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary px-6">Отмена</button>
+            <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary px-6">{t('common.cancel')}</button>
           </div>
         </form>
       </Modal>
 
       {/* Bulk vacancy modal */}
-      <Modal open={bulkVacModal} onClose={() => setBulkVacModal(false)} title="Привязать к вакансии">
+      <Modal open={bulkVacModal} onClose={() => setBulkVacModal(false)} title={t('candidates.bulkVacancyTitle')}>
         <div className="space-y-2">
           {vacancyOptions.filter(v => v.status === 'open' || !v.status).map(v => (
             <button key={v.id} onClick={() => bulkAssignVacancy(v.id)}
@@ -668,7 +680,7 @@ export default function CandidatesPage() {
               <div className="font-semibold text-slate-800">{v.title}</div>
             </button>
           ))}
-          {!vacancyOptions.length && <p className="text-slate-400 text-center py-6">Нет открытых вакансий</p>}
+          {!vacancyOptions.length && <p className="text-slate-400 text-center py-6">{t('common.noData')}</p>}
         </div>
       </Modal>
     </div>

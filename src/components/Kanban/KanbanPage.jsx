@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useCanWrite } from '@/hooks/useCanWrite';
 import { STAGES, STAGE_LABELS, STAGE_COLORS } from '@/lib/config';
+import { useI18n } from '@/hooks/useI18n';
 import Modal from '@/components/common/Modal';
 
 function money(n) {
@@ -16,8 +18,9 @@ export default function KanbanPage() {
   const currentUserId   = useStore(s => s.currentUserId);
   const allCandidates   = useStore(s => s.allCandidates);
   const addToast        = useStore(s => s.addToast);
-  const setActiveView   = useStore(s => s.setActiveView);
+  const navigate        = useNavigate();
   const canWrite        = useCanWrite();
+  const { t }           = useI18n();
 
   const [items, setItems] = useState([]);
   const [linkModal, setLinkModal] = useState(false);
@@ -31,16 +34,16 @@ export default function KanbanPage() {
     const { data, error } = await sb.from('candidacies')
       .select('id, current_stage, created_at, candidates(id, full_name, email, phone, salary_expectation)')
       .eq('vacancy_id', currentVacId);
-    if (error) { addToast('Ошибка загрузки канбана', 'err'); return; }
+    if (error) { addToast(t('common.error'), 'err'); return; }
     setItems(data || []);
   }, [currentVacId]);
 
   useEffect(() => { load(); }, [currentVacId]);
 
   const moveStage = async (candidacyId, fromStage, toStage) => {
-    if (!canWrite) { addToast('Недостаточно прав', 'err'); return; }
+    if (!canWrite) { addToast(t('common.error'), 'err'); return; }
     const { error } = await sb.from('candidacies').update({ current_stage: toStage }).eq('id', candidacyId);
-    if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
+    if (error) { addToast(t('common.error') + ': ' + error.message, 'err'); return; }
     await sb.from('stage_history').insert({
       candidacy_id: candidacyId, from_stage: fromStage,
       to_stage: toStage, changed_by: currentUserId,
@@ -61,8 +64,8 @@ export default function KanbanPage() {
     const { error } = await sb.from('candidacies').insert({
       candidate_id: candidateId, vacancy_id: currentVacId, current_stage: 'new',
     });
-    if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
-    addToast('Кандидат привязан ✓');
+    if (error) { addToast(t('common.error') + ': ' + error.message, 'err'); return; }
+    addToast(t('kanban.toastLinked') + ' ✓');
     setLinkModal(false);
     load();
   };
@@ -74,13 +77,13 @@ export default function KanbanPage() {
       phone: x.candidates?.phone || '',
       stage: x.current_stage,
     }));
-    const header = 'Имя,Email,Телефон,Этап\n';
+    const header = `${t('common.name')},Email,${t('common.phone')},${t('common.status')}\n`;
     const csv = header + rows.map(r => `"${r.name}","${r.email}","${r.phone}","${r.stage}"`).join('\n');
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement('a'), { href: url, download: `${currentVacTitle}_candidates.csv` });
     a.click(); URL.revokeObjectURL(url);
-    addToast('CSV скачан ✓');
+    addToast(t('kanban.exportCSV') + ' ✓');
   };
 
   // Drag & drop
@@ -122,9 +125,9 @@ export default function KanbanPage() {
       <div className="flex items-center justify-center h-64 text-slate-400">
         <div className="text-center">
           <p className="text-5xl mb-3">📋</p>
-          <p className="font-semibold">Выберите вакансию для канбана</p>
-          <button onClick={() => setActiveView('vacancies')} className="btn-primary mt-4">
-            Перейти к вакансиям
+          <p className="font-semibold">{t('kanban.noVacancy')}</p>
+          <button onClick={() => navigate('/vacancies')} className="btn-primary mt-4">
+            {t('kanban.goToVac')}
           </button>
         </div>
       </div>
@@ -135,13 +138,13 @@ export default function KanbanPage() {
     <div className="p-4 md:p-6 pb-20 md:pb-6 flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <button onClick={() => setActiveView('vacancies')} className="btn-secondary btn-sm">← Вакансии</button>
+        <button onClick={() => navigate('/vacancies')} className="btn-secondary btn-sm">{t('kanban.backToVac')}</button>
         <h2 className="page-title mb-0 flex-1">{currentVacTitle}</h2>
         <div className="flex gap-2">
           {canWrite && (
-            <button onClick={openLinkModal} className="btn-secondary btn-sm">+ Привязать кандидата</button>
+            <button onClick={openLinkModal} className="btn-secondary btn-sm">{t('kanban.linkCandidate')}</button>
           )}
-          <button onClick={exportCSV} className="btn-secondary btn-sm">📥 CSV</button>
+          <button onClick={exportCSV} className="btn-secondary btn-sm">{t('kanban.exportCSV')}</button>
         </div>
       </div>
 
@@ -171,7 +174,7 @@ export default function KanbanPage() {
                   onDrop={e => onDrop(e, stage)}
                 >
                   {cards.length === 0 && (
-                    <p className="text-xs text-slate-400 text-center py-4">Пусто</p>
+                    <p className="text-xs text-slate-400 text-center py-4">{t('kanban.empty')}</p>
                   )}
                   {cards.map(item => {
                     const c = item.candidates || {};
@@ -215,18 +218,18 @@ export default function KanbanPage() {
       </div>
 
       {/* Link modal */}
-      <Modal open={linkModal} onClose={() => setLinkModal(false)} title="Привязать кандидата">
+      <Modal open={linkModal} onClose={() => setLinkModal(false)} title={t('kanban.linkTitle')}>
         <div className="mb-3">
           <input
             className="input-field"
-            placeholder="Поиск кандидата…"
+            placeholder={t('kanban.searchLink')}
             value={linkSearch}
             onChange={e => setLinkSearch(e.target.value)}
           />
         </div>
         <div className="space-y-1 max-h-96 overflow-y-auto">
           {filteredLinks.length === 0 ? (
-            <p className="text-slate-400 text-center py-6 text-xs">Нет доступных кандидатов</p>
+            <p className="text-slate-400 text-center py-6 text-xs">{t('common.noData')}</p>
           ) : filteredLinks.map(c => {
             const status = c.status === 'in_work' ? '🔵' : c.status === 'archive' ? '⚪' : '🟢';
             return (

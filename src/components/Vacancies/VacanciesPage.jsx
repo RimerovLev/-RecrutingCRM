@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useCanWrite } from '@/hooks/useCanWrite';
+import { useI18n } from '@/hooks/useI18n';
 import { VAC_STATUS_BADGE, VAC_STATUS_LABEL } from '@/lib/config';
 import { cacheSet, cacheGet, LS } from '@/hooks/useOffline';
 import Modal from '@/components/common/Modal';
@@ -24,7 +26,8 @@ export default function VacanciesPage() {
   const canWrite       = useCanWrite();
   const addToast       = useStore(s => s.addToast);
   const setKanban      = useStore(s => s.setKanbanVacancy);
-  const setActiveView  = useStore(s => s.setActiveView);
+  const navigate       = useNavigate();
+  const { t }          = useI18n();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId]       = useState(null);
@@ -111,7 +114,7 @@ export default function VacanciesPage() {
 
   const openKanban = (id, title) => {
     setKanban(id, title);
-    setActiveView('kanban');
+    navigate('/kanban');
   };
 
   const today = new Date(); today.setHours(0,0,0,0);
@@ -119,17 +122,17 @@ export default function VacanciesPage() {
   return (
     <div className="p-6 pb-20 md:pb-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="page-title mb-0">Вакансии</h2>
+        <h2 className="page-title mb-0">{t('vacancies.title')}</h2>
         {canWrite && (
-          <button onClick={openCreate} className="btn-primary">+ Вакансия</button>
+          <button onClick={openCreate} className="btn-primary">{t('vacancies.addBtn')}</button>
         )}
       </div>
 
       {allVacancies.length === 0 ? (
         <div className="card p-12 text-center text-slate-400">
           <p className="text-4xl mb-3">💼</p>
-          <p className="font-semibold">Нет вакансий</p>
-          <p className="text-sm mt-1">Создайте первую вакансию для начала подбора</p>
+          <p className="font-semibold">{t('vacancies.noVacancies')}</p>
+          <p className="text-sm mt-1">{t('vacancies.noVacDesc')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -143,7 +146,7 @@ export default function VacanciesPage() {
               const overdue = dl < today;
               deadlineEl = (
                 <span className={`text-xs ${overdue ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
-                  ⏰ до {dl.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                  ⏰ {dl.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
                 </span>
               );
             }
@@ -166,7 +169,7 @@ export default function VacanciesPage() {
                     <span className="text-xs text-slate-400">👥 {Math.min(candCount, v.headcount)}/{v.headcount}</span>
                   )}
                   {!v.headcount && candCount !== null && (
-                    <span className="text-xs text-slate-400">👤 {candCount} канд.</span>
+                    <span className="text-xs text-slate-400">👤 {candCount} {t('vacancies.candidates')}</span>
                   )}
                 </div>
 
@@ -178,13 +181,13 @@ export default function VacanciesPage() {
                 )}
 
                 <div className="flex flex-wrap gap-1.5 mt-auto pt-1 border-t border-slate-100">
-                  <button onClick={() => openKanban(v.id, v.title)} className="btn-primary btn-sm flex-1">📋 Канбан</button>
+                  <button onClick={() => openKanban(v.id, v.title)} className="btn-primary btn-sm flex-1">{t('vacancies.kanbanBtn')}</button>
                   {canWrite && <>
-                    <button onClick={() => openEdit(v)} className="btn-secondary btn-sm px-2.5" title="Редактировать">✏️</button>
+                    <button onClick={() => openEdit(v)} className="btn-secondary btn-sm px-2.5" title={t('common.edit')}>{t('vacancies.editBtn')}</button>
                     <button onClick={() => toggleStatus(v.id, v.status)} className="btn-secondary btn-sm">
-                      {v.status === 'open' ? '🔒 Закрыть' : '🔓 Открыть'}
+                      {v.status === 'open' ? t('vacancies.closeBtn') : t('vacancies.openBtn')}
                     </button>
-                    <button onClick={() => handleDelete(v.id, v.title)} className="btn-secondary btn-sm px-2.5 hover:bg-red-50 hover:text-red-500" title="Удалить">🗑️</button>
+                    <button onClick={() => handleDelete(v.id, v.title)} className="btn-secondary btn-sm px-2.5 hover:bg-red-50 hover:text-red-500" title={t('common.delete')}>{t('vacancies.deleteBtn')}</button>
                   </>}
                 </div>
               </div>
@@ -194,62 +197,62 @@ export default function VacanciesPage() {
       )}
 
       {/* Modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? 'Редактировать вакансию' : 'Создать вакансию'} wide>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? t('vacancies.formEditTitle') : t('vacancies.formAddTitle')} wide>
         <form onSubmit={handleSave} className="space-y-4">
           <div>
-            <label className="form-label">Название *</label>
+            <label className="form-label">{t('vacancies.fieldTitle')} *</label>
             <input className="input-field" value={form.title} onChange={e => setForm(f => ({...f, title: e.target.value}))} required />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">Отдел</label>
+              <label className="form-label">{t('vacancies.fieldDept')}</label>
               <input className="input-field" value={form.department} onChange={e => setForm(f => ({...f, department: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Статус</label>
+              <label className="form-label">{t('vacancies.fieldStatus')}</label>
               <select className="input-field" value={form.status} onChange={e => setForm(f => ({...f, status: e.target.value}))}>
-                <option value="open">Открыта</option>
-                <option value="in_work">В работе</option>
-                <option value="closed">Закрыта</option>
-                <option value="archive">Архив</option>
+                <option value="open">{t('vacStatus.open')}</option>
+                <option value="in_work">{t('vacStatus.in_work')}</option>
+                <option value="closed">{t('vacStatus.closed')}</option>
+                <option value="archive">{t('vacStatus.archive')}</option>
               </select>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="form-label">Зарплата от</label>
+              <label className="form-label">{t('vacancies.fieldSalMin')}</label>
               <input type="number" className="input-field" value={form.salary_min} onChange={e => setForm(f => ({...f, salary_min: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Зарплата до</label>
+              <label className="form-label">{t('vacancies.fieldSalMax')}</label>
               <input type="number" className="input-field" value={form.salary_max} onChange={e => setForm(f => ({...f, salary_max: e.target.value}))} />
             </div>
             <div>
-              <label className="form-label">Кол-во мест</label>
+              <label className="form-label">{t('vacancies.fieldHeadcount')}</label>
               <input type="number" className="input-field" value={form.headcount} onChange={e => setForm(f => ({...f, headcount: e.target.value}))} />
             </div>
           </div>
           <div>
-            <label className="form-label">Дедлайн</label>
+            <label className="form-label">{t('vacancies.fieldDeadline')}</label>
             <input type="date" className="input-field" value={form.deadline} onChange={e => setForm(f => ({...f, deadline: e.target.value}))} />
           </div>
           <div>
-            <label className="form-label">Описание</label>
+            <label className="form-label">{t('vacancies.fieldDesc')}</label>
             <textarea className="input-field" rows={3} value={form.description} onChange={e => setForm(f => ({...f, description: e.target.value}))} />
           </div>
           <div>
-            <label className="form-label">Требования</label>
+            <label className="form-label">{t('vacancies.fieldReq')}</label>
             <textarea className="input-field" rows={3} value={form.requirements} onChange={e => setForm(f => ({...f, requirements: e.target.value}))} />
           </div>
           <div>
-            <label className="form-label">Заметки</label>
+            <label className="form-label">{t('vacancies.fieldNotes')}</label>
             <textarea className="input-field" rows={2} value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} />
           </div>
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={saving} className="btn-primary flex-1 justify-center py-2.5">
-              {saving ? 'Сохранение…' : '💾 Сохранить'}
+              {saving ? t('common.saving') : '💾 ' + t('common.save')}
             </button>
-            <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary px-6">Отмена</button>
+            <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary px-6">{t('common.cancel')}</button>
           </div>
         </form>
       </Modal>

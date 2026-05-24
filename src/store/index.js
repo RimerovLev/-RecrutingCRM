@@ -87,6 +87,21 @@ export const useStore = create((set, get) => ({
   activeView: 'dashboard',
   setActiveView: (v) => set({ activeView: v }),
 
+  // ── Language (persisted to localStorage) ────────────────────────
+  language: (() => {
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('crm_lang') : null;
+    return saved === 'he' ? 'he' : 'ru';
+  })(),
+  setLanguage: (lang) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('crm_lang', lang);
+    // Apply RTL direction to document
+    if (typeof document !== 'undefined') {
+      document.documentElement.dir = lang === 'he' ? 'rtl' : 'ltr';
+      document.documentElement.lang = lang;
+    }
+    set({ language: lang });
+  },
+
   // ── Toasts ───────────────────────────────────────────────────────
   toasts: [],
   addToast: (msg, type = 'ok') => {

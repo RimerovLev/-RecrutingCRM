@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useCanWrite } from '@/hooks/useCanWrite';
+import { useI18n } from '@/hooks/useI18n';
 import { cacheSet, cacheGet, LS } from '@/hooks/useOffline';
 import Modal from '@/components/common/Modal';
 
@@ -21,6 +22,7 @@ export default function RemindersPage() {
   const currentOrgId  = useStore(s => s.currentOrgId);
   const addToast    = useStore(s => s.addToast);
   const canWrite    = useCanWrite();
+  const { t }       = useI18n();
 
   const [reminders, setReminders]   = useState([]);
   const [hideDone, setHideDone]     = useState(false);
@@ -60,8 +62,8 @@ export default function RemindersPage() {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!canWrite) { addToast('Недостаточно прав', 'err'); return; }
-    if (!remNote.trim()) { addToast('Укажи текст напоминания', 'err'); return; }
+    if (!canWrite) { addToast(t('common.error'), 'err'); return; }
+    if (!remNote.trim()) { addToast(t('common.error'), 'err'); return; }
 
     // Объединяем дату и время в один timestamp, если оба заполнены
     let dueDate = null;
@@ -76,8 +78,8 @@ export default function RemindersPage() {
       due_date: dueDate,
       is_done: false,
     });
-    if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
-    addToast('Напоминание создано ✓');
+    if (error) { addToast(t('common.error') + ': ' + error.message, 'err'); return; }
+    addToast(t('reminders.toastSaved') + ' ✓');
     setModalOpen(false);
     setRemNote(''); setRemDate(''); setRemTime('10:00');
     load();
@@ -131,7 +133,7 @@ export default function RemindersPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
         <h2 className="page-title mb-0">
-          Напоминания
+          {t('reminders.title')}
           {activeCount > 0 && (
             <span className="ml-2 bg-indigo-500 text-white text-xs rounded-full px-2 py-0.5">
               {activeCount}
@@ -141,7 +143,7 @@ export default function RemindersPage() {
         <div className="flex gap-2 flex-wrap items-center">
           {/* Sort buttons */}
           <div className="flex gap-1">
-            {[['asc', '↑ Дата'], ['desc', '↓ Дата'], ['none', '≡ Группы']].map(([dir, label]) => (
+            {[['asc', t('reminders.sortAsc')], ['desc', t('reminders.sortDesc')], ['none', '≡']].map(([dir, label]) => (
               <button key={dir} onClick={() => setSortDir(dir)}
                 className={`rem-sort-btn btn-sm text-xs border rounded-lg px-2 py-1 ${sortDir === dir ? 'active' : ''}`}>
                 {label}
@@ -150,10 +152,10 @@ export default function RemindersPage() {
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
             <input type="checkbox" checked={hideDone} onChange={e => setHideDone(e.target.checked)} className="rounded" />
-            Скрыть выполненные
+            {t('reminders.hideDone')}
           </label>
           {canWrite && (
-            <button onClick={() => setModalOpen(true)} className="btn-primary">+ Напоминание</button>
+            <button onClick={() => setModalOpen(true)} className="btn-primary">{t('reminders.addBtn')}</button>
           )}
         </div>
       </div>
@@ -162,7 +164,7 @@ export default function RemindersPage() {
       {displayList.length === 0 ? (
         <div className="card p-10 text-center text-slate-400">
           <p className="text-4xl mb-3">🔔</p>
-          <p className="font-semibold">Нет напоминаний</p>
+          <p className="font-semibold">{t('reminders.noReminders')}</p>
         </div>
       ) : sortDir !== 'none' ? (
         <div className="space-y-3">{displayList.map(renderItem)}</div>
@@ -170,13 +172,13 @@ export default function RemindersPage() {
         <>
           {activeList.length > 0 && (
             <div className="mb-4">
-              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Активные</h4>
+              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">{t('reminders.sectionActive')}</h4>
               <div className="space-y-3">{activeList.map(renderItem)}</div>
             </div>
           )}
           {doneList.length > 0 && (
             <div>
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Выполненные</h4>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">{t('reminders.sectionDone')}</h4>
               <div className="space-y-3">{doneList.map(renderItem)}</div>
             </div>
           )}
@@ -184,25 +186,25 @@ export default function RemindersPage() {
       )}
 
       {/* Create modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Создать напоминание">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={t('reminders.formTitle')}>
         <form onSubmit={handleSave} className="space-y-4">
           <div>
-            <label className="form-label">Текст напоминания *</label>
+            <label className="form-label">{t('reminders.fieldNote')}</label>
             <input className="input-field" value={remNote} onChange={e => setRemNote(e.target.value)} required />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">Дата</label>
+              <label className="form-label">{t('reminders.fieldDate')}</label>
               <input type="date" className="input-field" value={remDate} onChange={e => setRemDate(e.target.value)} />
             </div>
             <div>
-              <label className="form-label">Время</label>
+              <label className="form-label">{t('reminders.fieldTime')}</label>
               <input type="time" className="input-field" value={remTime} onChange={e => setRemTime(e.target.value)} />
             </div>
           </div>
           <div className="flex gap-3 pt-2">
-            <button type="submit" className="btn-primary flex-1 justify-center py-2.5">💾 Сохранить</button>
-            <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary px-6">Отмена</button>
+            <button type="submit" className="btn-primary flex-1 justify-center py-2.5">💾 {t('common.save')}</button>
+            <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary px-6">{t('common.cancel')}</button>
           </div>
         </form>
       </Modal>

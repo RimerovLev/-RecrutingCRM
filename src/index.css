@@ -201,3 +201,45 @@ body.role-viewer .write-disabled { opacity: .4; pointer-events: none; }
 textarea { resize: vertical; font-family: var(--font-sans); }
 .modal-overlay        { display: none; }
 .modal-overlay.active { display: flex; }
+
+/* ── RTL (Hebrew) overrides ─────────────────────────────────────── */
+
+/* Sidebar flips to right side in RTL */
+[dir="rtl"] .sidebar-panel {
+  left: auto !important;
+  right: 0 !important;
+  border-right: none !important;
+  border-left: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+/* Main content shifts right instead of left in RTL */
+[dir="rtl"] .main-with-sidebar {
+  margin-left: 0 !important;
+  margin-right: 220px !important;
+}
+
+/* Active border indicator flips side */
+[dir="rtl"] .nav-active-bar {
+  left: auto !important;
+  right: 0 !important;
+  border-radius: 2px 0 0 2px !important;
+}
+
+/* Table text alignment */
+[dir="rtl"] .th,
+[dir="rtl"] .th-sort {
+  text-align: right;
+}
+
+/* Language toggle pill */
+.lang-toggle {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 999px; padding: 3px 10px;
+  font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6);
+  cursor: pointer; transition: all 0.15s; font-family: var(--font-sans);
+  white-space: nowrap;
+}
+.lang-toggle:hover {
+  background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.9);
+}

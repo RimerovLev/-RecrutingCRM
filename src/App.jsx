@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 
@@ -46,10 +47,23 @@ export default function App() {
   const setCurrentUser    = useStore(s => s.setCurrentUser);
   const setCurrentProfile = useStore(s => s.setCurrentProfile);
   const setCurrentOrgName = useStore(s => s.setCurrentOrgName);
+  const setActiveView     = useStore(s => s.setActiveView);
   const clearAuth         = useStore(s => s.clearAuth);
-  const activeView        = useStore(s => s.activeView);
+  const language          = useStore(s => s.language);
   const isOnline          = useOffline();
+  const location          = useLocation();
 
+  // Apply RTL/LTR direction on mount and when language changes
+  useEffect(() => {
+    document.documentElement.dir  = language === 'he' ? 'rtl' : 'ltr';
+    document.documentElement.lang = language;
+  }, [language]);
+
+  // Sync activeView store with URL path (for components that still read it)
+  useEffect(() => {
+    const seg = location.pathname.replace('/', '') || 'dashboard';
+    setActiveView(seg);
+  }, [location.pathname]);
 
   // true после первого срабатывания onAuthStateChange (убирает мигание экрана)
   const [authReady, setAuthReady] = useState(false);
@@ -138,25 +152,26 @@ export default function App() {
     );
   }
 
-  const PAGE = {
-    dashboard:  <DashboardPage />,
-    candidates: <CandidatesPage />,
-    vacancies:  <VacanciesPage />,
-    kanban:     <KanbanPage />,
-    reminders:  <RemindersPage />,
-    interviews: <InterviewsPage />,
-    templates:  <TemplatesPage />,
-    admin:      <AdminPage />,
-  };
-
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       <OfflineBanner />
       <Sidebar />
-      <div style={{ marginLeft: 220, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {/* main-with-sidebar uses CSS class for RTL flipping (see index.css [dir=rtl]) */}
+      <div className={`main-with-sidebar ${language === 'he' ? 'md:mr-[220px]' : 'md:ml-[220px]'}`} style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
         <Topbar />
-        <main style={{ flex: 1 }}>
-          {PAGE[activeView] || <DashboardPage />}
+        <main style={{ flex: 1, paddingBottom: 64 }}>{/* paddingBottom for MobileNav */}
+          <Routes>
+            <Route path="/"           element={<DashboardPage />} />
+            <Route path="/dashboard"  element={<DashboardPage />} />
+            <Route path="/candidates" element={<CandidatesPage />} />
+            <Route path="/vacancies"  element={<VacanciesPage />} />
+            <Route path="/kanban"     element={<KanbanPage />} />
+            <Route path="/reminders"  element={<RemindersPage />} />
+            <Route path="/interviews" element={<InterviewsPage />} />
+            <Route path="/templates"  element={<TemplatesPage />} />
+            <Route path="/admin"      element={<AdminPage />} />
+            <Route path="*"           element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
       </div>
       <MobileNav />

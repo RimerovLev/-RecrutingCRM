@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
+import { useI18n } from '@/hooks/useI18n';
 
 export default function AuthPage() {
   const [tab, setTab]         = useState('login');
   const [loading, setLoading] = useState(false);
   const addToast              = useStore(s => s.addToast);
+  const { t }                 = useI18n();
 
   // Login form
   const [loginEmail, setLoginEmail]       = useState('');
@@ -22,7 +24,7 @@ export default function AuthPage() {
     setLoading(true);
     const { error } = await sb.auth.signInWithPassword({ email: loginEmail, password: loginPassword });
     setLoading(false);
-    if (error) addToast('Ошибка входа: ' + error.message, 'err');
+    if (error) addToast(t('auth.toastError') + ': ' + error.message, 'err');
   };
 
   const handleRegister = async (e) => {
@@ -35,9 +37,9 @@ export default function AuthPage() {
     });
     setLoading(false);
     if (error) {
-      addToast('Ошибка: ' + error.message, 'err');
+      addToast(t('common.error') + ': ' + error.message, 'err');
     } else {
-      addToast('Аккаунт создан! Проверьте email для подтверждения.', 'info');
+      addToast(t('auth.toastSuccess'), 'info');
       setTab('login');
     }
   };
@@ -47,25 +49,25 @@ export default function AuthPage() {
       <div style={{ width: '100%', maxWidth: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 36, fontWeight: 900, color: 'var(--ink)' }}>Recruit CRM</h1>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>Система управления подбором персонала</p>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>{t('onboarding.subtitle')}</p>
         </div>
 
         <div className="card" style={{ padding: 32 }}>
           {/* Tabs */}
           <div style={{ display: 'flex', gap: 24, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
-            {['login', 'register'].map(t => (
+            {['login', 'register'].map(tabKey => (
               <button
-                key={t}
-                onClick={() => setTab(t)}
+                key={tabKey}
+                onClick={() => setTab(tabKey)}
                 style={{
                   paddingBottom: 10, marginBottom: -1,
                   fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600,
                   background: 'none', border: 'none', cursor: 'pointer',
-                  borderBottom: `2px solid ${tab === t ? 'var(--accent)' : 'transparent'}`,
-                  color: tab === t ? 'var(--ink)' : 'var(--muted)',
+                  borderBottom: `2px solid ${tab === tabKey ? 'var(--accent)' : 'transparent'}`,
+                  color: tab === tabKey ? 'var(--ink)' : 'var(--muted)',
                 }}
               >
-                {t === 'login' ? 'Войти' : 'Регистрация'}
+                {tabKey === 'login' ? t('auth.signIn') : t('auth.signUp')}
               </button>
             ))}
           </div>
@@ -73,7 +75,7 @@ export default function AuthPage() {
           {tab === 'login' ? (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="form-label">Email</label>
+                <label className="form-label">{t('auth.email')}</label>
                 <input
                   type="email"
                   value={loginEmail}
@@ -84,7 +86,7 @@ export default function AuthPage() {
                 />
               </div>
               <div>
-                <label className="form-label">Пароль</label>
+                <label className="form-label">{t('auth.password')}</label>
                 <input
                   type="password"
                   value={loginPassword}
@@ -95,24 +97,23 @@ export default function AuthPage() {
                 />
               </div>
               <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-2.5">
-                {loading ? 'Входим…' : 'Войти'}
+                {loading ? t('common.loading') : t('auth.signInBtn')}
               </button>
             </form>
           ) : (
             <form onSubmit={handleRegister} className="space-y-4">
               <div>
-                <label className="form-label">Имя</label>
+                <label className="form-label">{t('common.name')}</label>
                 <input
                   type="text"
                   value={regName}
                   onChange={e => setRegName(e.target.value)}
                   className="input-field"
-                  placeholder="Иван Иванов"
                   required
                 />
               </div>
               <div>
-                <label className="form-label">Email</label>
+                <label className="form-label">{t('auth.email')}</label>
                 <input
                   type="email"
                   value={regEmail}
@@ -123,30 +124,29 @@ export default function AuthPage() {
                 />
               </div>
               <div>
-                <label className="form-label">Пароль</label>
+                <label className="form-label">{t('auth.password')}</label>
                 <input
                   type="password"
                   value={regPassword}
                   onChange={e => setRegPassword(e.target.value)}
                   className="input-field"
-                  placeholder="Минимум 6 символов"
+                  placeholder="••••••"
                   required
                   minLength={6}
                 />
               </div>
               <div>
-                <label className="form-label">Код администратора <span className="text-slate-400 font-normal">(необязательно)</span></label>
+                <label className="form-label">Admin code <span className="text-slate-400 font-normal">(optional)</span></label>
                 <input
                   type="password"
                   value={regAdminCode}
                   onChange={e => setRegAdminCode(e.target.value)}
                   className="input-field"
-                  placeholder="Если есть — введи для получения прав админа"
                   autoComplete="off"
                 />
               </div>
               <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-2.5">
-                {loading ? 'Создаём…' : 'Создать аккаунт'}
+                {loading ? t('common.loading') : t('auth.signUpBtn')}
               </button>
             </form>
           )}

@@ -1,46 +1,50 @@
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '@/store';
-
-const NAV = [
-  { view: 'dashboard',  icon: '📊', label: 'Дашборд' },
-  { view: 'candidates', icon: '👤', label: 'Кандидаты' },
-  { view: 'interviews', icon: '🤝', label: 'Интервью' },
-  { view: 'reminders',  icon: '🔔', label: 'Напоминания' },
-  { view: 'vacancies',  icon: '💼', label: 'Вакансии' },
-];
+import { useI18n } from '@/hooks/useI18n';
 
 export default function MobileNav() {
-  const activeView    = useStore(s => s.activeView);
-  const setActiveView = useStore(s => s.setActiveView);
   const currentProfileRole = useStore(s => s.currentProfileRole);
   const isAdmin            = currentProfileRole === 'admin';
+  const navigate           = useNavigate();
+  const location           = useLocation();
+  const activePath         = location.pathname.replace('/', '') || 'dashboard';
+  const { t }              = useI18n();
+
+  const NAV = [
+    { view: 'dashboard',  icon: '📊', labelKey: 'mobileNav.dashboard' },
+    { view: 'candidates', icon: '👤', labelKey: 'mobileNav.candidates' },
+    { view: 'interviews', icon: '🤝', labelKey: 'mobileNav.interviews' },
+    { view: 'reminders',  icon: '🔔', labelKey: 'mobileNav.reminders' },
+    { view: 'vacancies',  icon: '💼', labelKey: 'mobileNav.vacancies' },
+  ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-white border-t border-slate-200 flex">
-      {NAV.map(({ view, icon, label }) => (
+      {NAV.map(({ view, icon, labelKey }) => (
         <button
           key={view}
-          onClick={() => setActiveView(view)}
+          onClick={() => navigate('/' + view)}
           className={`flex-1 flex flex-col items-center justify-center py-2 text-xs gap-0.5 transition-colors ${
-            activeView === view
+            activePath === view
               ? 'text-indigo-600 font-semibold'
               : 'text-slate-400 hover:text-slate-600'
           }`}
         >
           <span className="text-base">{icon}</span>
-          <span>{label}</span>
+          <span>{t(labelKey)}</span>
         </button>
       ))}
       {isAdmin && (
         <button
-          onClick={() => setActiveView('admin')}
+          onClick={() => navigate('/admin')}
           className={`flex-1 flex flex-col items-center justify-center py-2 text-xs gap-0.5 transition-colors ${
-            activeView === 'admin'
+            activePath === 'admin'
               ? 'text-purple-600 font-semibold'
               : 'text-slate-400 hover:text-slate-600'
           }`}
         >
           <span className="text-base">⚡</span>
-          <span>Админ</span>
+          <span>{t('mobileNav.admin')}</span>
         </button>
       )}
     </nav>
