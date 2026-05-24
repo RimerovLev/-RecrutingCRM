@@ -9,6 +9,7 @@ const NAV_MAIN = [
 const NAV_ACTIVITY = [
   { view: 'interviews', icon: '▪', label: 'Интервью' },
   { view: 'reminders',  icon: '▪', label: 'Напоминания' },
+  { view: 'templates',  icon: '▪', label: 'Шаблоны писем' },
 ];
 const NAV_ADMIN = [
   { view: 'admin', icon: '▪', label: 'Администрирование' },

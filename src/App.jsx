@@ -20,6 +20,7 @@ import KanbanPage      from '@/components/Kanban/KanbanPage';
 import RemindersPage   from '@/components/Reminders/RemindersPage';
 import InterviewsPage  from '@/components/Interviews/InterviewsPage';
 import AdminPage       from '@/components/Admin/AdminPage';
+import TemplatesPage   from '@/components/Templates/TemplatesPage';
 
 // Common
 import ToastContainer from '@/components/common/Toast';
@@ -127,16 +128,17 @@ export default function App() {
     kanban:     <KanbanPage />,
     reminders:  <RemindersPage />,
     interviews: <InterviewsPage />,
+    templates:  <TemplatesPage />,
     admin:      <AdminPage />,
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       <OfflineBanner />
       <Sidebar />
-      <div style={{ marginLeft: 220, flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <div style={{ marginLeft: 220, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
         <Topbar />
-        <main style={{ flex: 1, overflowY: 'auto' }}>
+        <main style={{ flex: 1 }}>
           {PAGE[activeView] || <DashboardPage />}
         </main>
       </div>

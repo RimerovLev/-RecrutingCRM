@@ -7,6 +7,7 @@ const PAGE_TITLES = {
   kanban:     'Пайплайн',
   reminders:  'Напоминания',
   interviews: 'Интервью',
+  templates:  'Шаблоны писем',
   admin:      'Администрирование',
 };
 
