@@ -3,10 +3,11 @@ import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useCanWrite } from '@/hooks/useCanWrite';
 import { useI18n } from '@/hooks/useI18n';
+import { useOrgFields } from '@/hooks/useOrgFields';
 import {
   STAGES, STAGE_LABELS, STAGE_COLORS, STATUS_LABELS, STATUS_BADGE, PAGE_SIZE,
 } from '@/lib/config';
-import { cacheSet, cacheGet, LS, queueOp } from '@/hooks/useOffline';
+import { cacheSet, cacheGet, LS, queueOp, useOffline } from '@/hooks/useOffline';
 import Modal from '@/components/common/Modal';
 import CandidateDrawer from '@/components/Drawer/CandidateDrawer';
 import ImportModal from '@/components/Candidates/ImportModal';
@@ -51,6 +52,11 @@ export default function CandidatesPage() {
   const addToast         = useStore(s => s.addToast);
   const canWrite         = useCanWrite();
   const { t }            = useI18n();
+  const { visibleFields } = useOrgFields();
+
+  // Helpers for conditional columns
+  const isVisible  = (key) => visibleFields.some(f => f.key === key);
+  const customCols = visibleFields.filter(f => !f.system);
 
   // Filters state
   const [filterStatus, setFilterStatus] = useState('');
@@ -69,6 +75,12 @@ export default function CandidatesPage() {
   const [tagInput, setTagInput]     = useState('');
   const [saving, setSaving]         = useState(false);
   const [vacancyOptions, setVacancyOptions] = useState([]);
+
+  // Offline status
+  const isOnline = useOffline();
+
+  // Resume upload
+  const [resumeUploading, setResumeUploading] = useState(false);
 
   // Bulk vacancy modal
   const [bulkVacModal, setBulkVacModal] = useState(false);
@@ -206,10 +218,27 @@ export default function CandidatesPage() {
     setEditId(c.id); setModalOpen(true);
   };
 
+  // ── Resume file upload to Supabase Storage ──────────────────────
+  const handleResumeUpload = async (file) => {
+    if (!file) return;
+    setResumeUploading(true);
+    const ext  = file.name.split('.').pop();
+    const path = `${currentOrgId || 'shared'}/${Date.now()}_${Math.random().toString(36).slice(2,7)}.${ext}`;
+    const { error } = await sb.storage.from('resumes').upload(path, file, { upsert: true });
+    if (error) {
+      addToast('Ошибка загрузки файла: ' + error.message, 'err');
+    } else {
+      const { data: { publicUrl } } = sb.storage.from('resumes').getPublicUrl(path);
+      setForm(f => ({ ...f, resume_url: publicUrl }));
+      addToast('Резюме загружено ✓');
+    }
+    setResumeUploading(false);
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!canWrite) { addToast('Недостаточно прав (роль viewer)', 'err'); return; }
-    if (!form.full_name.trim()) { addToast('Укажи имя кандидата', 'err'); return; }
+    if (!canWrite) { addToast(t('candidates.noPermission'), 'err'); return; }
+    if (!form.full_name.trim()) { addToast(t('candidates.nameRequired'), 'err'); return; }
     setSaving(true);
     const payload = {
       full_name: form.full_name.trim(),
@@ -230,6 +259,26 @@ export default function CandidatesPage() {
       pipeline_stage: form.pipeline_stage || 'new',
       tags: currentTags,
     };
+
+    // ── Offline path ─────────────────────────────────────────────
+    if (!navigator.onLine) {
+      if (editId) {
+        queueOp({ type: 'update', table: 'candidates', data: payload, matchField: 'id', matchValue: editId });
+      } else {
+        const offlineId = crypto.randomUUID();
+        queueOp({ type: 'insert', table: 'candidates', data: {
+          ...payload, id: offlineId,
+          recruiter_id: currentUserId, org_id: currentOrgId,
+          created_at: new Date().toISOString(),
+        }});
+      }
+      setSaving(false);
+      addToast('📴 Сохранено офлайн — синхронизируется при подключении');
+      setModalOpen(false);
+      return;
+    }
+
+    // ── Online path ──────────────────────────────────────────────
     let error, savedId;
     if (editId) {
       ({ error } = await sb.from('candidates').update(payload).eq('id', editId));
@@ -248,8 +297,8 @@ export default function CandidatesPage() {
       );
     }
     setSaving(false);
-    if (error) { addToast('Ошибка: ' + error.message, 'err'); return; }
-    addToast(editId ? 'Кандидат обновлён ✓' : 'Кандидат добавлен ✓');
+    if (error) { addToast(t('common.error') + ': ' + error.message, 'err'); return; }
+    addToast(editId ? t('candidates.toastSaved') + ' ✓' : t('candidates.toastAdded') + ' ✓');
     setModalOpen(false);
     load();
   };
@@ -392,21 +441,24 @@ export default function CandidatesPage() {
                 <th className="th w-8"></th>
                 <SortTh field="full_name" label={t('candidates.colName')} />
                 <th className="th">{t('candidates.colStatus')}</th>
-                <SortTh field="phone" label={t('candidates.colPhone')} />
-                <SortTh field="district_residence" label={t('candidates.colDistRes')} />
-                <SortTh field="district_work" label={t('candidates.colDistWork')} />
-                <th className="th">{t('candidates.colCar')}</th>
-                <SortTh field="position" label={t('candidates.colPosition')} />
-                <SortTh field="resume_source" label={t('candidates.colSource')} />
-                <th className="th">{t('candidates.colContact')}</th>
-                <th className="th">{t('candidates.colProfile')}</th>
-                <th className="th">{t('candidates.colResume')}</th>
+                {isVisible('phone') && <SortTh field="phone" label={t('candidates.colPhone')} />}
+                {isVisible('district_residence') && <SortTh field="district_residence" label={t('candidates.colDistRes')} />}
+                {isVisible('district_work') && <SortTh field="district_work" label={t('candidates.colDistWork')} />}
+                {isVisible('has_car') && <th className="th">{t('candidates.colCar')}</th>}
+                {isVisible('position') && <SortTh field="position" label={t('candidates.colPosition')} />}
+                {isVisible('resume_source') && <SortTh field="resume_source" label={t('candidates.colSource')} />}
+                {isVisible('contact_status') && <th className="th">{t('candidates.colContact')}</th>}
+                {isVisible('candidate_link') && <th className="th">{t('candidates.colProfile')}</th>}
+                {isVisible('resume_url') && <th className="th">{t('candidates.colResume')}</th>}
+                {customCols.map(f => (
+                  <th key={f.key} className="th">{f.label}</th>
+                ))}
                 <th className="th">{t('candidates.colActions')}</th>
               </tr>
             </thead>
             <tbody>
               {displayList.length === 0 ? (
-                <tr><td colSpan={14} className="py-10 text-center text-slate-400">Нет кандидатов</td></tr>
+                <tr><td colSpan={99} className="py-10 text-center text-slate-400">{t('candidates.noResults')}</td></tr>
               ) : displayList.map(c => {
                 const status = c.status || 'active';
                 const statusCls = STATUS_BADGE[status] || 'badge-active';
@@ -440,39 +492,68 @@ export default function CandidatesPage() {
                         <option value="archive">{t('status.archive')}</option>
                       </select>
                     </td>
-                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{c.phone || '—'}</td>
-                    <td className="px-4 py-3 text-slate-500">{c.district_residence || '—'}</td>
-                    <td className="px-4 py-3 text-slate-500">{c.district_work || '—'}</td>
-                    <td className="px-4 py-3">
-                      {c.has_car === 'Да'
-                        ? <span className="bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded-full">✅ Да</span>
-                        : c.has_car === 'Нет'
-                          ? <span className="bg-red-50 text-red-400 text-xs px-2 py-0.5 rounded-full">✗ Нет</span>
+                    {isVisible('phone') && (
+                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{c.phone || '—'}</td>
+                    )}
+                    {isVisible('district_residence') && (
+                      <td className="px-4 py-3 text-slate-500">{c.district_residence || '—'}</td>
+                    )}
+                    {isVisible('district_work') && (
+                      <td className="px-4 py-3 text-slate-500">{c.district_work || '—'}</td>
+                    )}
+                    {isVisible('has_car') && (
+                      <td className="px-4 py-3">
+                        {c.has_car === 'Да'
+                          ? <span className="bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded-full">✅ {t('common.yes')}</span>
+                          : c.has_car === 'Нет'
+                            ? <span className="bg-red-50 text-red-400 text-xs px-2 py-0.5 rounded-full">✗ {t('common.no')}</span>
+                            : <span className="text-slate-300">—</span>}
+                      </td>
+                    )}
+                    {isVisible('position') && (
+                      <td className="px-4 py-3">
+                        <span className="text-slate-700">{c.position || '—'}</span>
+                        {stage && stage !== 'new' && (
+                          <span className={`pipeline-badge ml-1 ${STAGE_COLORS[stage]}`}>{STAGE_LABELS[stage]}</span>
+                        )}
+                        {tags.map(tag => (
+                          <span key={tag} className="tag-chip ml-1">{tag}</span>
+                        ))}
+                      </td>
+                    )}
+                    {isVisible('resume_source') && (
+                      <td className="px-4 py-3 text-slate-500">{c.resume_source || '—'}</td>
+                    )}
+                    {isVisible('contact_status') && (
+                      <td className="px-4 py-3 text-slate-500 max-w-[160px]">
+                        <div className="truncate">{c.contact_status || '—'}</div>
+                      </td>
+                    )}
+                    {isVisible('candidate_link') && (
+                      <td className="px-4 py-3">
+                        {c.candidate_link
+                          ? <a href={c.candidate_link} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline text-xs">👤 {t('drawer.profileLink')}</a>
                           : <span className="text-slate-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-slate-700">{c.position || '—'}</span>
-                      {stage && stage !== 'new' && (
-                        <span className={`pipeline-badge ml-1 ${STAGE_COLORS[stage]}`}>{STAGE_LABELS[stage]}</span>
-                      )}
-                      {tags.map(t => (
-                        <span key={t} className="tag-chip ml-1">{t}</span>
-                      ))}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">{c.resume_source || '—'}</td>
-                    <td className="px-4 py-3 text-slate-500 max-w-[160px]">
-                      <div className="truncate">{c.contact_status || '—'}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.candidate_link
-                        ? <a href={c.candidate_link} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline text-xs">👤 Открыть</a>
-                        : <span className="text-slate-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.resume_url
-                        ? <a href={c.resume_url} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline text-xs">📎 Открыть</a>
-                        : <span className="text-slate-300">—</span>}
-                    </td>
+                      </td>
+                    )}
+                    {isVisible('resume_url') && (
+                      <td className="px-4 py-3">
+                        {c.resume_url
+                          ? <a href={c.resume_url} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline text-xs">📎 {t('drawer.resumeLink')}</a>
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+                    )}
+                    {customCols.map(f => {
+                      const val = c.custom_data?.[f.key];
+                      let display = '—';
+                      if (val != null && val !== '') {
+                        if (f.type === 'boolean') display = val ? t('common.yes') : t('common.no');
+                        else display = String(val);
+                      }
+                      return (
+                        <td key={f.key} className="px-4 py-3 text-slate-500">{display}</td>
+                      );
+                    })}
                     <td className="px-4 py-3">
                       <div className="flex gap-1 flex-wrap">
                         {canWrite && <button onClick={() => openEdit(c)} title="Редактировать" className="text-blue-500 hover:scale-110 transition-transform">✏️</button>}
@@ -620,7 +701,23 @@ export default function CandidatesPage() {
             </div>
             <div>
               <label className="form-label">{t('candidates.fieldResumeUrl')}</label>
-              <input className="input-field" value={form.resume_url} onChange={e => setForm(f => ({...f, resume_url: e.target.value}))} />
+              <input className="input-field" value={form.resume_url} onChange={e => setForm(f => ({...f, resume_url: e.target.value}))} placeholder="https://…" />
+            </div>
+          </div>
+          {/* Resume file upload */}
+          <div>
+            <label className="form-label">{t('candidates.fieldResumeUpload')} <span className="text-slate-400 font-normal">— {t('candidates.fieldResumeUploadHint')}</span></label>
+            <div className="flex gap-2 items-center">
+              <label className={`btn-secondary btn-sm cursor-pointer ${resumeUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                {resumeUploading ? '⏳ ' + t('common.loading') : '📎 ' + t('candidates.uploadFile')}
+                <input type="file" accept=".pdf,.docx,.doc" className="hidden"
+                  onChange={e => { if (e.target.files?.[0]) handleResumeUpload(e.target.files[0]); }} />
+              </label>
+              {form.resume_url && (
+                <a href={form.resume_url} target="_blank" rel="noreferrer" className="text-xs text-indigo-500 hover:underline truncate max-w-[200px]">
+                  {t('candidates.openResume')}
+                </a>
+              )}
             </div>
           </div>
           <div>
@@ -632,10 +729,10 @@ export default function CandidatesPage() {
           <div>
             <label className="form-label">{t('candidates.fieldTags')}</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
-              {currentTags.map(t => (
-                <span key={t} className="tag-chip">
-                  {t}
-                  <button type="button" onClick={() => setCurrentTags(tags => tags.filter(x => x !== t))}>×</button>
+              {currentTags.map(tag => (
+                <span key={tag} className="tag-chip">
+                  {tag}
+                  <button type="button" onClick={() => setCurrentTags(tags => tags.filter(x => x !== tag))}>×</button>
                 </span>
               ))}
             </div>
@@ -649,14 +746,14 @@ export default function CandidatesPage() {
                   if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
                     e.preventDefault();
                     const tag = tagInput.trim();
-                    if (!currentTags.includes(tag)) setCurrentTags(t => [...t, tag]);
+                    if (!currentTags.includes(tag)) setCurrentTags(prev => [...prev, tag]);
                     setTagInput('');
                   }
                 }}
               />
               <button type="button" className="btn-secondary px-3" onClick={() => {
                 const tag = tagInput.trim();
-                if (tag && !currentTags.includes(tag)) setCurrentTags(t => [...t, tag]);
+                if (tag && !currentTags.includes(tag)) setCurrentTags(prev => [...prev, tag]);
                 setTagInput('');
               }}>+</button>
             </div>

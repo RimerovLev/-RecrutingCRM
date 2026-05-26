@@ -3,6 +3,7 @@ import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useCanWrite } from '@/hooks/useCanWrite';
 import { useI18n } from '@/hooks/useI18n';
+import { useOrgFields } from '@/hooks/useOrgFields';
 import { STAGES, STAGE_LABELS, STAGE_COLORS, STATUS_BADGE } from '@/lib/config';
 import { isMissingTableError } from '@/lib/apiErrors';
 
@@ -20,10 +21,13 @@ export default function CandidateDrawer({ onReload }) {
   const closeDrawer       = useStore(s => s.closeDrawer);
   // allCandidates read via getState() inside loadAll to avoid subscription
   const currentUserId     = useStore(s => s.currentUserId);
+  const currentOrgId      = useStore(s => s.currentOrgId);
   const addToast          = useStore(s => s.addToast);
-  const canWrite          = useCanWrite();
-  const { t, isRTL }      = useI18n();
+  const canWrite             = useCanWrite();
+  const { t, isRTL }         = useI18n();
+  const { visibleFields }    = useOrgFields();
   const [visible, setVisible] = useState(false);
+  const [resumeUploading, setResumeUploading] = useState(false);
 
   // Data
   const [candidate, setCandidate] = useState(null);
@@ -190,9 +194,27 @@ export default function CandidateDrawer({ onReload }) {
     onReload?.();
   };
 
+  const handleResumeUpload = async (file) => {
+    if (!file) return;
+    setResumeUploading(true);
+    const ext  = file.name.split('.').pop();
+    const path = `${currentOrgId || 'shared'}/${Date.now()}_${Math.random().toString(36).slice(2,7)}.${ext}`;
+    const { error } = await sb.storage.from('resumes').upload(path, file, { upsert: true });
+    if (error) {
+      addToast(t('common.error') + ': ' + error.message, 'err');
+    } else {
+      const { data: { publicUrl } } = sb.storage.from('resumes').getPublicUrl(path);
+      setEditForm(prev => ({ ...prev, resume_url: publicUrl }));
+      addToast('Резюме загружено ✓');
+    }
+    setResumeUploading(false);
+  };
+
   const saveEdit = async (e) => {
     e.preventDefault();
-    await sb.from('candidates').update(editForm).eq('id', drawerCandidateId);
+    // Merge custom_data from editForm, keep other candidate fields intact
+    const payload = { ...editForm };
+    await sb.from('candidates').update(payload).eq('id', drawerCandidateId);
     addToast(t('candidates.toastSaved') + ' ✓');
     setEditMode(false);
     loadAll();
@@ -276,24 +298,54 @@ export default function CandidateDrawer({ onReload }) {
             <>
               {editMode ? (
                 <form onSubmit={saveEdit} className="space-y-3">
-                  {[
-                    ['full_name', t('candidates.fieldName')], ['phone', t('common.phone')], ['email', t('common.email')],
-                    ['position', t('candidates.fieldPosition')], ['experience', t('candidates.fieldExperience')],
-                    ['district_residence', t('candidates.fieldDistRes')], ['district_work', t('candidates.fieldDistWork')],
-                    ['resume_source', t('candidates.fieldSource')], ['contact_status', t('candidates.fieldContact')],
-                    ['candidate_link', t('candidates.fieldLink')], ['resume_url', t('candidates.fieldResumeUrl')],
-                  ].map(([field, label]) => (
-                    <div key={field}>
-                      <label className="form-label">{label}</label>
-                      <input className="input-field" value={editForm[field] || ''}
-                        onChange={e => setEditForm(f => ({...f, [field]: e.target.value}))} />
+                  {/* Render edit fields driven by org field config */}
+                  {visibleFields
+                    .filter(f => f.key !== 'notes') /* notes rendered separately */
+                    .map(f => {
+                      const isCustom = !f.system;
+                      const value = isCustom
+                        ? (editForm.custom_data?.[f.key] ?? '')
+                        : (editForm[f.key] ?? '');
+                      const onChange = isCustom
+                        ? e => setEditForm(prev => ({
+                            ...prev,
+                            custom_data: { ...(prev.custom_data || {}), [f.key]: e.target.value },
+                          }))
+                        : e => setEditForm(prev => ({ ...prev, [f.key]: e.target.value }));
+                      return (
+                        <div key={f.key}>
+                          <label className="form-label">{f.label}{f.required && ' *'}</label>
+                          {f.type === 'boolean' ? (
+                            <select className="input-field" value={String(value)} onChange={e => onChange({ target: { value: e.target.value === 'true' } })}>
+                              <option value="">—</option>
+                              <option value="true">{t('common.yes')}</option>
+                              <option value="false">{t('common.no')}</option>
+                            </select>
+                          ) : f.key === 'resume_url' ? (
+                            <div className="space-y-1.5">
+                              <input className="input-field" type="text" placeholder="https://…"
+                                value={value} onChange={onChange} />
+                              <label className={`btn-secondary btn-sm cursor-pointer inline-flex items-center gap-1 ${resumeUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                                {resumeUploading ? '⏳ …' : '📎 Загрузить PDF/DOCX'}
+                                <input type="file" accept=".pdf,.docx,.doc" className="hidden"
+                                  onChange={ev => { if (ev.target.files?.[0]) handleResumeUpload(ev.target.files[0]); }} />
+                              </label>
+                            </div>
+                          ) : (
+                            <input className="input-field" type={f.type === 'number' ? 'number' : 'text'}
+                              value={value} onChange={onChange} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  {/* Notes always at bottom */}
+                  {visibleFields.find(f => f.key === 'notes') && (
+                    <div>
+                      <label className="form-label">{visibleFields.find(f => f.key === 'notes').label}</label>
+                      <textarea className="input-field" rows={3} value={editForm.notes || ''}
+                        onChange={e => setEditForm(f => ({...f, notes: e.target.value}))} />
                     </div>
-                  ))}
-                  <div>
-                    <label className="form-label">{t('drawer.notes')}</label>
-                    <textarea className="input-field" rows={3} value={editForm.notes || ''}
-                      onChange={e => setEditForm(f => ({...f, notes: e.target.value}))} />
-                  </div>
+                  )}
                   <div className="flex gap-2">
                     <button type="submit" className="btn-primary btn-sm">{t('drawer.saveBtn')}</button>
                     <button type="button" onClick={() => setEditMode(false)} className="btn-secondary btn-sm">{t('drawer.cancelBtn')}</button>
@@ -301,22 +353,25 @@ export default function CandidateDrawer({ onReload }) {
                 </form>
               ) : (
                 <>
+                  {/* Read-only info grid — only visible, non-notes fields */}
                   <div className="grid grid-cols-2 gap-3 text-sm">
-                    {[
-                      ['📞 ' + t('drawer.phone'), candidate.phone],
-                      ['✉️ ' + t('drawer.email'), candidate.email],
-                      ['🚗 ' + t('drawer.car'), candidate.has_car],
-                      ['🏠 ' + t('drawer.distRes'), candidate.district_residence],
-                      ['🏢 ' + t('drawer.distWork'), candidate.district_work],
-                      ['📋 ' + t('drawer.source'), candidate.resume_source],
-                      ['📝 ' + t('drawer.experience'), candidate.experience],
-                      ['💬 ' + t('drawer.contactStatus'), candidate.contact_status],
-                    ].map(([label, value]) => (
-                      <div key={label}>
-                        <p className="text-xs text-slate-400">{label}</p>
-                        <p className="font-medium text-slate-700">{value || '—'}</p>
-                      </div>
-                    ))}
+                    {visibleFields
+                      .filter(f => !['notes', 'candidate_link', 'resume_url'].includes(f.key))
+                      .map(f => {
+                        const isCustom = !f.system;
+                        const raw = isCustom
+                          ? candidate.custom_data?.[f.key]
+                          : candidate[f.key];
+                        const display = f.type === 'boolean'
+                          ? (raw === true || raw === 'true' ? t('common.yes') : raw === false || raw === 'false' ? t('common.no') : '—')
+                          : (raw || '—');
+                        return (
+                          <div key={f.key}>
+                            <p className="text-xs text-slate-400">{f.label}</p>
+                            <p className="font-medium text-slate-700">{display}</p>
+                          </div>
+                        );
+                      })}
                   </div>
 
                   {tags.length > 0 && (
@@ -346,7 +401,7 @@ export default function CandidateDrawer({ onReload }) {
 
                   {canWrite && (
                     <div className="flex gap-2 pt-2 border-t border-slate-100">
-                      <button onClick={() => { setEditForm({ ...candidate }); setEditMode(true); }}
+                      <button onClick={() => { setEditForm({ ...candidate, custom_data: candidate.custom_data || {} }); setEditMode(true); }}
                         className="btn-secondary btn-sm">{t('drawer.editBtn')}</button>
                       <button onClick={handleDelete}
                         className="btn-secondary btn-sm text-red-400 hover:bg-red-50">{t('drawer.deleteBtn')}</button>
