@@ -23,6 +23,7 @@ export const useStore = create((set, get) => ({
     currentUserId: null, currentUserEmail: null,
     currentProfileRole: 'recruiter', currentProfileName: null,
     currentOrgId: null, currentOrgName: null,
+    orgSubscription: null, subscriptionReady: false,
   }),
 
   // ── Candidates ───────────────────────────────────────────────────
@@ -106,6 +107,12 @@ export const useStore = create((set, get) => ({
   orgFields:     null,   // null = not loaded yet; [] = loaded (empty = use defaults)
   orgFieldsReady: false,
   setOrgFields:  (fields) => set({ orgFields: fields, orgFieldsReady: true }),
+
+  // ── Subscription ─────────────────────────────────────────────────
+  orgSubscription:  null,   // null = not loaded yet
+  subscriptionReady: false,
+  setOrgSubscription: (sub) => set({ orgSubscription: sub, subscriptionReady: true }),
+  clearOrgSubscription: () => set({ orgSubscription: null, subscriptionReady: false }),
 
   // ── Toasts ───────────────────────────────────────────────────────
   toasts: [],
