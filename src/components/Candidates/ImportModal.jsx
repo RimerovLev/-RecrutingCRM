@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useI18n } from '@/hooks/useI18n';
+import { useOrgFields } from '@/hooks/useOrgFields';
 import Modal from '@/components/common/Modal';
 
 const SKIP = '__skip__';
@@ -101,23 +102,16 @@ export default function ImportModal({ open, onClose, onDone }) {
   const currentOrgId  = useStore(s => s.currentOrgId);
   const addToast      = useStore(s => s.addToast);
   const { t }         = useI18n();
+  const { fields: orgFields } = useOrgFields();
 
-  // CRM fields with translated labels — defined inside component so t() works
-  const CRM_FIELDS = [
-    { key: 'full_name',          label: t('candidates.fieldName'),    required: true  },
-    { key: 'phone',              label: t('candidates.fieldPhone'),   required: false },
-    { key: 'email',              label: t('candidates.fieldEmail'),   required: false },
-    { key: 'position',           label: t('candidates.fieldPosition'),required: false },
-    { key: 'experience',         label: t('candidates.fieldExperience'), required: false },
-    { key: 'salary_wish',        label: t('candidates.fieldSalary'),  required: false },
-    { key: 'district_residence', label: t('candidates.fieldDistRes'), required: false },
-    { key: 'district_work',      label: t('candidates.fieldDistWork'),required: false },
-    { key: 'has_car',            label: t('candidates.fieldCar'),     required: false },
-    { key: 'resume_source',      label: t('candidates.fieldSource'),  required: false },
-    { key: 'contact_status',     label: t('candidates.fieldContact'), required: false },
-    { key: 'notes',              label: t('candidates.fieldNotes'),   required: false },
-    { key: 'candidate_link',     label: t('candidates.fieldLink'),    required: false },
-  ];
+  // CRM fields for import = visible org fields (system + custom), all visible ones available
+  // Custom fields map to candidates.custom_data[key]
+  const CRM_FIELDS = orgFields.map(f => ({
+    key:      f.key,
+    label:    f.label,
+    required: f.required ?? false,
+    custom:   !f.system,
+  }));
 
   const fileRef = useRef();
   const [step,    setStep]    = useState(1);
@@ -197,15 +191,21 @@ export default function ImportModal({ open, onClose, onDone }) {
     let imported = 0, skipped = 0, errors = 0;
     const BATCH = 50;
 
+    // Build a lookup: which field keys are custom (→ custom_data)
+    const customKeys = new Set(CRM_FIELDS.filter(f => f.custom).map(f => f.key));
+
     const allRows = parsed.rows.map(row => {
-      const rec = { recruiter_id: currentUserId, org_id: currentOrgId, status: 'active', pipeline_stage: 'new' };
+      const rec = { recruiter_id: currentUserId, org_id: currentOrgId, status: 'active', pipeline_stage: 'new', custom_data: {} };
       Object.entries(mapping).forEach(([csvCol, crmField]) => {
         if (crmField !== SKIP && row[csvCol]?.trim()) {
-          if (crmField === 'salary_wish') {
-            const n = parseInt(String(row[csvCol]).replace(/\D/g, ''));
+          const val = row[csvCol].trim();
+          if (customKeys.has(crmField)) {
+            rec.custom_data[crmField] = val;
+          } else if (crmField === 'salary_wish') {
+            const n = parseInt(String(val).replace(/\D/g, ''));
             if (!isNaN(n)) rec[crmField] = n;
           } else {
-            rec[crmField] = row[csvCol].trim();
+            rec[crmField] = val;
           }
         }
       });

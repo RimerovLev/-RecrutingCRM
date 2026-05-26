@@ -75,7 +75,7 @@ export default function App() {
     const applySession = async (session) => {
       if (session?.user) {
         setCurrentUser(session.user);
-        markReady();              // ← сразу показываем приложение, не ждём профиль
+        // Load profile BEFORE markReady to avoid flashing OnboardingPage
         try {
           const profile = await loadProfile(session.user.id);
           setCurrentProfile(profile);
@@ -90,6 +90,7 @@ export default function App() {
         } catch (e) {
           console.warn('loadProfile:', e);
         }
+        markReady(); // ← after profile is loaded, org is known, render correct page
       } else {
         clearAuth();
         document.body.classList.remove('role-viewer', 'role-admin', 'role-recruiter');

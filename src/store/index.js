@@ -102,6 +102,11 @@ export const useStore = create((set, get) => ({
     set({ language: lang });
   },
 
+  // ── Org Fields ───────────────────────────────────────────────────
+  orgFields:     null,   // null = not loaded yet; [] = loaded (empty = use defaults)
+  orgFieldsReady: false,
+  setOrgFields:  (fields) => set({ orgFields: fields, orgFieldsReady: true }),
+
   // ── Toasts ───────────────────────────────────────────────────────
   toasts: [],
   addToast: (msg, type = 'ok') => {

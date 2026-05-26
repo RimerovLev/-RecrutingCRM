@@ -3,6 +3,7 @@ import { sb } from '@/lib/supabase';
 import { useStore } from '@/store';
 import { useI18n } from '@/hooks/useI18n';
 import Modal from '@/components/common/Modal';
+import OrgFieldsEditor from './OrgFieldsEditor';
 
 // ── Helpers ──────────────────────────────────────────────────────
 function fmt(n) { return n ?? 0; }
@@ -170,6 +171,7 @@ export default function AdminPage() {
     { id: 'vacancies',   label: '💼 ' + t('nav.vacancies') },
     { id: 'activity',    label: t('admin.tabActivity') },
     { id: 'reports',     label: t('admin.tabReports') },
+    { id: 'fields',      label: '🗂 Поля' },
   ];
 
   const loadAll = useCallback(async () => {
@@ -412,12 +414,12 @@ export default function AdminPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 overflow-x-auto pb-1">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
+        {TABS.map(tb => (
+          <button key={tb.id} onClick={() => setTab(tb.id)}
             className={`whitespace-nowrap text-sm px-4 py-2 rounded-xl font-semibold transition ${
-              tab === t.id ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:border-indigo-300'
+              tab === tb.id ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:border-indigo-300'
             }`}>
-            {t.label}
+            {tb.label}
           </button>
         ))}
       </div>
@@ -875,6 +877,11 @@ export default function AdminPage() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* ── FIELDS EDITOR ───────────────────────────────────── */}
+          {tab === 'fields' && (
+            <OrgFieldsEditor />
           )}
         </>
       )}
