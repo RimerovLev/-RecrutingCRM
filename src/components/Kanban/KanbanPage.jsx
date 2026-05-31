@@ -16,7 +16,7 @@ export default function KanbanPage() {
   const currentVacId    = useStore(s => s.currentVacId);
   const currentVacTitle = useStore(s => s.currentVacTitle);
   const currentUserId   = useStore(s => s.currentUserId);
-  const allCandidates   = useStore(s => s.allCandidates);
+  const currentOrgId    = useStore(s => s.currentOrgId);
   const addToast        = useStore(s => s.addToast);
   const navigate        = useNavigate();
   const canWrite        = useCanWrite();
@@ -53,9 +53,18 @@ export default function KanbanPage() {
   };
 
   const openLinkModal = async () => {
-    const { data: linked } = await sb.from('candidacies').select('candidate_id').eq('vacancy_id', currentVacId);
+    // Fetch candidates directly from DB — don't rely on store (may be empty if Kanban opened first)
+    const [{ data: linked }, { data: allCands }] = await Promise.all([
+      sb.from('candidacies').select('candidate_id').eq('vacancy_id', currentVacId),
+      sb.from('candidates')
+        .select('id, full_name, phone, position, status')
+        .eq('org_id', currentOrgId)
+        .neq('status', 'archive')
+        .order('full_name', { ascending: true })
+        .limit(500),
+    ]);
     const linkedIds = (linked || []).map(x => x.candidate_id);
-    setLinkAvailable(allCandidates.filter(c => !linkedIds.includes(c.id)));
+    setLinkAvailable((allCands || []).filter(c => !linkedIds.includes(c.id)));
     setLinkSearch('');
     setLinkModal(true);
   };
