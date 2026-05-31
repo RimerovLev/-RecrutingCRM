@@ -23,6 +23,7 @@ export default function CandidateDrawer({ onReload }) {
   const currentUserId     = useStore(s => s.currentUserId);
   const currentOrgId      = useStore(s => s.currentOrgId);
   const addToast          = useStore(s => s.addToast);
+  const openEmailModal    = useStore(s => s.openEmailModal);
   const canWrite             = useCanWrite();
   const { t, isRTL }         = useI18n();
   const { visibleFields }    = useOrgFields();
@@ -399,14 +400,18 @@ export default function CandidateDrawer({ onReload }) {
                     </div>
                   )}
 
-                  {canWrite && (
-                    <div className="flex gap-2 pt-2 border-t border-slate-100">
+                  <div className="flex gap-2 pt-2 border-t border-slate-100 flex-wrap">
+                    <button
+                      onClick={() => openEmailModal(candidate.id)}
+                      className="btn-secondary btn-sm"
+                    >✉️ Написать</button>
+                    {canWrite && (<>
                       <button onClick={() => { setEditForm({ ...candidate, custom_data: candidate.custom_data || {} }); setEditMode(true); }}
                         className="btn-secondary btn-sm">{t('drawer.editBtn')}</button>
                       <button onClick={handleDelete}
                         className="btn-secondary btn-sm text-red-400 hover:bg-red-50">{t('drawer.deleteBtn')}</button>
-                    </div>
-                  )}
+                    </>)}
+                  </div>
                 </>
               )}
             </>

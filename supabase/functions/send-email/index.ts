@@ -54,7 +54,7 @@ serve(async (req) => {
       });
     }
 
-    const { from, to, subject, html } = await req.json();
+    const { to, subject, html, sender_name, sender_email } = await req.json();
 
     if (!to || !subject || !html) {
       return new Response(JSON.stringify({ error: 'Missing required fields: to, subject, html' }), {
@@ -71,6 +71,18 @@ serve(async (req) => {
       });
     }
 
+    // System "from" domain (configure SENDER_DOMAIN in Edge Function secrets,
+    // e.g. "noreply@yourdomain.com"). Falls back to Resend sandbox address.
+    const SENDER_DOMAIN = Deno.env.get('SENDER_DOMAIN') ?? 'onboarding@resend.dev';
+
+    // Display name: "Имя Рекрутера <noreply@yourdomain.com>"
+    const fromField = sender_name
+      ? `${sender_name} <${SENDER_DOMAIN}>`
+      : SENDER_DOMAIN;
+
+    // reply-to: recruiter's real email so candidate's reply goes to them directly
+    const replyTo = sender_email && emailRe.test(sender_email) ? sender_email : undefined;
+
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -78,7 +90,8 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: from || 'onboarding@resend.dev',
+        from: fromField,
+        ...(replyTo ? { reply_to: [replyTo] } : {}),
         to: [to],
         subject: String(subject).slice(0, 500),
         html: String(html).slice(0, 100_000),

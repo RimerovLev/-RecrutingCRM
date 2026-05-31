@@ -28,6 +28,7 @@ import OwnerPanel      from '@/components/Owner/OwnerPanel';
 // Common
 import ToastContainer from '@/components/common/Toast';
 import TelegramLinkModal from '@/components/Auth/TelegramLinkModal';
+import EmailModal        from '@/components/Email/EmailModal';
 import ErrorBoundary  from '@/components/ErrorBoundary';
 import SubscriptionGate from '@/components/Subscription/SubscriptionGate';
 import TrialBanner    from '@/components/Subscription/TrialBanner';
@@ -50,11 +51,14 @@ async function registerNewToken(deviceHint) {
 /**
  * Validate the locally-stored token against the DB.
  * Returns true if valid, false if the session has been superseded (another device logged in).
+ * THROWS if the RPC itself fails (network/DB error) — callers must distinguish infra errors
+ * from a genuinely invalid token and should NOT sign the user out on infra errors.
  */
 async function validateToken() {
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token) return false;
-  const { data } = await sb.rpc('validate_session_token', { p_token: token });
+  const { data, error } = await sb.rpc('validate_session_token', { p_token: token });
+  if (error) throw error; // infrastructure error — propagate so caller can handle gracefully
   return !!data;
 }
 
@@ -111,7 +115,12 @@ export default function App() {
     setKickingOut(true);
     localStorage.removeItem(TOKEN_KEY);
     clearAuth();
-    await sb.auth.signOut();
+    try {
+      await sb.auth.signOut();
+    } catch (e) {
+      console.warn('signOut error:', e);
+      // signOut failed (network) — local state already cleared, so proceed
+    }
     setKickingOut(false);
   };
 
@@ -120,8 +129,13 @@ export default function App() {
     stopPeriodicCheck();
     periodicTimerRef.current = setInterval(async () => {
       if (!navigator.onLine) return; // skip when offline
-      const ok = await validateToken();
-      if (!ok) forceSignOut();
+      try {
+        const ok = await validateToken();
+        if (!ok) await forceSignOut(); // await so kickingOut state resolves before next tick
+      } catch (e) {
+        // RPC infrastructure error (network blip, DB timeout) — skip this cycle
+        console.warn('Session validation error (skipping cycle):', e);
+      }
     }, 5 * 60 * 1000);
   };
 
@@ -144,16 +158,28 @@ export default function App() {
         // ── Session token ────────────────────────────────────────────
         if (isNewLogin) {
           // New login: register a fresh token (invalidates other devices)
-          await registerNewToken(navigator.userAgent);
+          try {
+            await registerNewToken(navigator.userAgent);
+          } catch (e) {
+            // DB/network error — user just logged in, let them in;
+            // periodic check will re-validate on the next cycle
+            console.warn('registerNewToken error (continuing):', e);
+          }
           startPeriodicCheck();
         } else {
           // Restored session: validate existing token
-          const ok = await validateToken();
-          if (!ok) {
-            // Token invalid → another device superseded us
-            markReady();
-            await forceSignOut();
-            return;
+          try {
+            const ok = await validateToken();
+            if (!ok) {
+              // Token invalid → another device superseded us
+              markReady();
+              await forceSignOut();
+              return;
+            }
+          } catch (e) {
+            // Infrastructure error (network/DB) — do NOT sign out;
+            // allow session and let periodic check retry
+            console.warn('validateToken error on restore (allowing session):', e);
           }
           startPeriodicCheck();
         }
@@ -164,12 +190,21 @@ export default function App() {
           setCurrentProfile(profile);
 
           if (profile?.org_id) {
-            const [{ data: org }, { data: sub }] = await Promise.all([
-              sb.from('organizations').select('name').eq('id', profile.org_id).single(),
-              sb.rpc('get_org_subscription', { p_org_id: profile.org_id }),
-            ]);
-            if (org) setCurrentOrgName(org.name);
-            setOrgSubscription(sub || { found: false, is_active: true, plan: 'trial', expires_at: null, days_remaining: null });
+            // Separate try/catch so an org/subscription RPC failure does NOT
+            // prevent the subscription gate from activating — we set a safe
+            // fallback explicitly so subscriptionReady always becomes true.
+            try {
+              const [{ data: org }, { data: sub }] = await Promise.all([
+                sb.from('organizations').select('name').eq('id', profile.org_id).single(),
+                sb.rpc('get_org_subscription', { p_org_id: profile.org_id }),
+              ]);
+              if (org) setCurrentOrgName(org.name);
+              setOrgSubscription(sub ?? { found: false, is_active: true, plan: 'trial', expires_at: null, days_remaining: null });
+            } catch (orgErr) {
+              console.warn('org/subscription load error (using fallback):', orgErr);
+              // Graceful fallback: treat as active trial to avoid false positives
+              setOrgSubscription({ found: false, is_active: true, plan: 'trial', expires_at: null, days_remaining: null });
+            }
           }
 
           if (profile?.role) {
@@ -301,6 +336,7 @@ export default function App() {
         </div>
         <MobileNav />
         <TelegramLinkModal />
+        <EmailModal />
         <ToastContainer />
       </div>
     </ErrorBoundary>
