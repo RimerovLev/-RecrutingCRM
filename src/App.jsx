@@ -195,7 +195,7 @@ export default function App() {
             // fallback explicitly so subscriptionReady always becomes true.
             try {
               const [{ data: org }, { data: sub }] = await Promise.all([
-                sb.from('organizations').select('name').eq('id', profile.org_id).single(),
+                sb.from('organizations').select('name').eq('id', profile.org_id).maybeSingle(),
                 sb.rpc('get_org_subscription', { p_org_id: profile.org_id }),
               ]);
               if (org) setCurrentOrgName(org.name);
