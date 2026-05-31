@@ -168,25 +168,16 @@ export default function App() {
           }
           startPeriodicCheck();
         } else {
-          // Restored session: validate existing token
+          // Restored session (page refresh): do NOT validate token here —
+          // getSession + onAuthStateChange both fire on refresh and race with
+          // each other when registering tokens, causing false 'invalid' results.
+          // The periodic check (every 5 min) handles single-device enforcement.
+          // Just ensure a token exists so the periodic check has something to verify.
           try {
-            const result = await validateToken();
-            if (result === 'invalid') {
-              // Token exists but doesn't match DB → another device logged in → kick out
-              markReady();
-              await forceSignOut();
-              return;
-            }
-            if (result === 'no_token') {
-              // No token yet (first load, cleared storage, or 020 applied after first login)
-              // Register silently — do NOT sign out
-              await registerNewToken(navigator.userAgent);
-            }
-            // 'ok' → all good
+            const token = localStorage.getItem(TOKEN_KEY);
+            if (!token) await registerNewToken(navigator.userAgent);
           } catch (e) {
-            // Infrastructure error (network/DB) — do NOT sign out;
-            // allow session and let periodic check retry
-            console.warn('validateToken error on restore (allowing session):', e);
+            console.warn('registerNewToken on restore error (ignoring):', e);
           }
           startPeriodicCheck();
         }
