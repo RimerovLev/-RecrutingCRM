@@ -65,15 +65,13 @@ async function validateToken() {
 // ── Profile loader ────────────────────────────────────────────────────────────
 async function loadProfile(userId) {
   const { data, error } = await sb.from('profiles').select('*').eq('id', userId).maybeSingle();
-  if (error || !data) {
-    const { data: session } = await sb.auth.getUser();
-    const name = session?.user?.user_metadata?.full_name || session?.user?.email || '';
-    const { data: np } = await sb.from('profiles').upsert({
-      id: userId, full_name: name, role: 'recruiter',
-    }, { onConflict: 'id' }).select().single();
-    return np;
-  }
-  return data;
+  if (!error && data) return data;
+
+  // Profile missing — create via SECURITY DEFINER RPC (bypasses RLS safely)
+  const { data: userResp } = await sb.auth.getUser();
+  const name = userResp?.user?.user_metadata?.full_name || userResp?.user?.email || '';
+  const { data: created } = await sb.rpc('ensure_profile', { p_full_name: name });
+  return created;
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
