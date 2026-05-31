@@ -50,16 +50,17 @@ async function registerNewToken(deviceHint) {
 
 /**
  * Validate the locally-stored token against the DB.
- * Returns true if valid, false if the session has been superseded (another device logged in).
- * THROWS if the RPC itself fails (network/DB error) — callers must distinguish infra errors
- * from a genuinely invalid token and should NOT sign the user out on infra errors.
+ * Returns 'ok'       — token matches DB (all good)
+ * Returns 'no_token' — no token in localStorage (first load or cleared) → register new one
+ * Returns 'invalid'  — token exists but doesn't match DB → another device logged in → sign out
+ * THROWS on infrastructure errors (network/DB) — callers must NOT sign out on infra errors.
  */
 async function validateToken() {
   const token = localStorage.getItem(TOKEN_KEY);
-  if (!token) return false;
+  if (!token) return 'no_token';
   const { data, error } = await sb.rpc('validate_session_token', { p_token: token });
-  if (error) throw error; // infrastructure error — propagate so caller can handle gracefully
-  return !!data;
+  if (error) throw error;
+  return data ? 'ok' : 'invalid';
 }
 
 // ── Profile loader ────────────────────────────────────────────────────────────
@@ -128,8 +129,10 @@ export default function App() {
     periodicTimerRef.current = setInterval(async () => {
       if (!navigator.onLine) return; // skip when offline
       try {
-        const ok = await validateToken();
-        if (!ok) await forceSignOut(); // await so kickingOut state resolves before next tick
+        const result = await validateToken();
+        if (result === 'invalid') await forceSignOut();
+        if (result === 'no_token') await registerNewToken(navigator.userAgent);
+        // 'ok' → do nothing
       } catch (e) {
         // RPC infrastructure error (network blip, DB timeout) — skip this cycle
         console.warn('Session validation error (skipping cycle):', e);
@@ -167,13 +170,19 @@ export default function App() {
         } else {
           // Restored session: validate existing token
           try {
-            const ok = await validateToken();
-            if (!ok) {
-              // Token invalid → another device superseded us
+            const result = await validateToken();
+            if (result === 'invalid') {
+              // Token exists but doesn't match DB → another device logged in → kick out
               markReady();
               await forceSignOut();
               return;
             }
+            if (result === 'no_token') {
+              // No token yet (first load, cleared storage, or 020 applied after first login)
+              // Register silently — do NOT sign out
+              await registerNewToken(navigator.userAgent);
+            }
+            // 'ok' → all good
           } catch (e) {
             // Infrastructure error (network/DB) — do NOT sign out;
             // allow session and let periodic check retry
