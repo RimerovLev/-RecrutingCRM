@@ -64,7 +64,7 @@ async function validateToken() {
 
 // ── Profile loader ────────────────────────────────────────────────────────────
 async function loadProfile(userId) {
-  const { data, error } = await sb.from('profiles').select('*').eq('id', userId).single();
+  const { data, error } = await sb.from('profiles').select('*').eq('id', userId).maybeSingle();
   if (error || !data) {
     const { data: session } = await sb.auth.getUser();
     const name = session?.user?.user_metadata?.full_name || session?.user?.email || '';
