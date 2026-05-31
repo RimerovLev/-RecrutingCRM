@@ -4,6 +4,7 @@ import { useStore } from '@/store';
 import { useI18n } from '@/hooks/useI18n';
 import Modal from '@/components/common/Modal';
 import OrgFieldsEditor from './OrgFieldsEditor';
+import ReportsTab     from './ReportsTab';
 
 // ── Helpers ──────────────────────────────────────────────────────
 function fmt(n) { return n ?? 0; }
@@ -810,73 +811,47 @@ export default function AdminPage() {
 
           {/* ── REPORTS ──────────────────────────────────────────── */}
           {tab === 'reports' && (
-            <div className="grid md:grid-cols-3 gap-4">
-              {/* HR Report */}
-              <div className="card p-5 flex flex-col gap-3">
-                <div className="text-3xl">👥</div>
-                <h3 className="font-bold text-slate-800">Отчёт по рекрутерам</h3>
-                <p className="text-sm text-slate-500 flex-1">
-                  Статистика по каждому HR: кандидаты, вакансии, интервью, напоминания.
-                </p>
-                <div className="flex gap-2 flex-wrap">
-                  <button onClick={exportHrXLSX} className="btn-primary btn-sm flex-1 justify-center">📊 Excel</button>
-                  <button onClick={exportHrDoc} className="btn-secondary btn-sm">📄 Word</button>
-                  <button onClick={exportHrPDF} className="btn-secondary btn-sm">🖨 PDF</button>
-                </div>
-              </div>
-
-              {/* Vacancies Report */}
-              <div className="card p-5 flex flex-col gap-3">
-                <div className="text-3xl">💼</div>
-                <h3 className="font-bold text-slate-800">Отчёт по вакансиям</h3>
-                <p className="text-sm text-slate-500 flex-1">
-                  Все вакансии: статусы, рекрутеры, дедлайны, количество кандидатов.
-                </p>
-                <div className="flex gap-2 flex-wrap">
-                  <button onClick={async () => {
-                    const headers = ['Вакансия', 'Рекрутер', 'Статус', 'Отдел', 'Кандидатов', 'Дедлайн'];
-                    const rows = allVacancies.map(v => ({
-                      'Вакансия': v.title, 'Рекрутер': v.profiles?.full_name || '',
-                      'Статус': v.status, 'Отдел': v.department || '',
-                      'Кандидатов': v.candidacies?.[0]?.count ?? 0, 'Дедлайн': fmtDate(v.deadline),
-                    }));
-                    try {
-                      const XLSX = (await import('xlsx')).default;
-                      const wb = XLSX.utils.book_new();
-                      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Вакансии');
-                      XLSX.writeFile(wb, 'отчёт_вакансии.xlsx');
-                      addToast('Excel скачан ✓');
-                    } catch { downloadCSV('отчёт_вакансии.csv', rows, headers); addToast('CSV скачан ✓'); }
-                  }} className="btn-primary btn-sm flex-1 justify-center">📊 Excel</button>
-                  <button onClick={exportVacanciesDoc} className="btn-secondary btn-sm">📄 Word</button>
-                  <button onClick={exportVacanciesPDF} className="btn-secondary btn-sm">🖨 PDF</button>
-                </div>
-              </div>
-
-              {/* Activity Report */}
-              <div className="card p-5 flex flex-col gap-3">
-                <div className="text-3xl">📋</div>
-                <h3 className="font-bold text-slate-800">Отчёт по активности</h3>
-                <p className="text-sm text-slate-500 flex-1">
-                  Лог действий за 30 дней: добавление кандидатов, смены этапов, интервью.
-                </p>
-                <div className="flex gap-2 flex-wrap">
-                  <button onClick={() => {
-                    const EVENT = { candidate_added: 'Добавлен кандидат', stage_changed: 'Смена этапа', interview_created: 'Интервью' };
-                    const headers = ['Событие', 'Рекрутер', 'Кандидат', 'Дата'];
-                    const rows = activity.map(a => ({
-                      'Событие': EVENT[a.event_type] || a.event_type,
-                      'Рекрутер': a.recruiter_name || '',
-                      'Кандидат': a.object_name || '',
-                      'Дата': fmtDateTime(a.event_at),
-                    }));
-                    downloadCSV('отчёт_активность.csv', rows, headers);
-                    addToast('CSV скачан ✓');
-                  }} className="btn-primary btn-sm flex-1 justify-center">📊 CSV</button>
-                  <button onClick={exportActivityPDF} className="btn-secondary btn-sm">🖨 PDF</button>
-                </div>
-              </div>
-            </div>
+            <ReportsTab
+              candidates={allCandidates}
+              vacancies={allVacancies}
+              activity={activity}
+              hrStats={hrStats}
+              exportFns={{
+                hrXLSX:  exportHrXLSX,
+                hrDoc:   exportHrDoc,
+                hrPDF:   exportHrPDF,
+                vacXLSX: async () => {
+                  const headers = ['Вакансия', 'Рекрутер', 'Статус', 'Отдел', 'Кандидатов', 'Дедлайн'];
+                  const rows = allVacancies.map(v => ({
+                    'Вакансия': v.title, 'Рекрутер': v.profiles?.full_name || '',
+                    'Статус': v.status, 'Отдел': v.department || '',
+                    'Кандидатов': v.candidacies?.[0]?.count ?? 0, 'Дедлайн': fmtDate(v.deadline),
+                  }));
+                  try {
+                    const XLSX = (await import('xlsx')).default;
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Вакансии');
+                    XLSX.writeFile(wb, 'отчёт_вакансии.xlsx');
+                    addToast('Excel скачан ✓');
+                  } catch { downloadCSV('отчёт_вакансии.csv', rows, headers); addToast('CSV скачан ✓'); }
+                },
+                vacDoc:  exportVacanciesDoc,
+                vacPDF:  exportVacanciesPDF,
+                actCSV:  () => {
+                  const EVENT = { candidate_added: 'Добавлен кандидат', stage_changed: 'Смена этапа', interview_created: 'Интервью' };
+                  const headers = ['Событие', 'Рекрутер', 'Кандидат', 'Дата'];
+                  const rows = activity.map(a => ({
+                    'Событие': EVENT[a.event_type] || a.event_type,
+                    'Рекрутер': a.recruiter_name || '',
+                    'Кандидат': a.object_name || '',
+                    'Дата': fmtDateTime(a.event_at),
+                  }));
+                  downloadCSV('отчёт_активность.csv', rows, headers);
+                  addToast('CSV скачан ✓');
+                },
+                actPDF:  exportActivityPDF,
+              }}
+            />
           )}
 
           {/* ── FIELDS EDITOR ───────────────────────────────────── */}
